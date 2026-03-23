@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Property Report - {{ report_date }}</title>
+    <style>{{ css }}</style>
+</head>
+<body>
+    <div class="header">
+        <h1>Weekly Property Report</h1>
+        <div class="date">{{ report_date }} | Baden-Baden (DE) & Alsace (FR)</div>
+    </div>
+
+    <!-- Executive Summary -->
+    <div class="summary-grid">
+        <div class="summary-card">
+            <div class="number">{{ total_active }}</div>
+            <div class="label">Active Listings</div>
+        </div>
+        <div class="summary-card">
+            <div class="number" style="color: #27ae60;">+{{ new_this_week }}</div>
+            <div class="label">New This Week</div>
+        </div>
+        <div class="summary-card">
+            <div class="number" style="color: #e74c3c;">-{{ removed_this_week }}</div>
+            <div class="label">Removed</div>
+        </div>
+        <div class="summary-card">
+            <div class="number" style="color: #f39c12;">{{ price_changes }}</div>
+            <div class="label">Price Changes</div>
+        </div>
+    </div>
+
+    {% if scrape_summary %}
+    <div class="section">
+        <h2>Scrape Summary</h2>
+        <table class="listing-table">
+            <tr><th>Source</th><th>Status</th><th>Found</th><th>New</th><th>Updated</th><th>Errors</th></tr>
+            {% for run in scrape_summary %}
+            <tr>
+                <td>{{ run.source }}</td>
+                <td>{{ run.status }}</td>
+                <td>{{ run.listings_found }}</td>
+                <td>{{ run.new_listings }}</td>
+                <td>{{ run.updated_listings }}</td>
+                <td>{{ run.errors }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- New Listings -->
+    {% for section_title, listings in new_listings_sections %}
+    {% if listings %}
+    <div class="section">
+        <h2>{{ section_title }}</h2>
+        <table class="listing-table">
+            <tr>
+                <th>Title</th>
+                <th>Price</th>
+                <th>Size</th>
+                <th>Rooms</th>
+                <th>Location</th>
+                <th>Source</th>
+            </tr>
+            {% for p in listings %}
+            <tr>
+                <td><a href="{{ p.listing_url }}" target="_blank">{{ p.title|truncate(60) }}</a></td>
+                <td class="price">{{ "{:,.0f}".format(p.price) if p.price else "N/A" }} &euro;{% if p.listing_type == 'rent' %}/mo{% endif %}</td>
+                <td>{{ "{:.0f}".format(p.living_area_sqm) if p.living_area_sqm else "N/A" }} m&sup2;</td>
+                <td>{{ p.rooms if p.rooms else "N/A" }}</td>
+                <td>{{ p.address_postal_code }} {{ p.address_city }}</td>
+                <td><span class="badge badge-{{ p.country|lower }}">{{ p.source }}</span></td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    <!-- Price Reductions -->
+    {% if price_reductions %}
+    <div class="section">
+        <h2>Price Reductions</h2>
+        <table class="listing-table">
+            <tr><th>Title</th><th>Old Price</th><th>New Price</th><th>Change</th><th>City</th></tr>
+            {% for pc in price_reductions %}
+            <tr>
+                <td><a href="{{ pc.listing_url }}" target="_blank">{{ pc.title|truncate(50) }}</a></td>
+                <td style="text-decoration: line-through; color: #999;">{{ "{:,.0f}".format(pc.old_price) }} &euro;</td>
+                <td class="price">{{ "{:,.0f}".format(pc.new_price) }} &euro;</td>
+                <td class="price-drop">{{ "{:+.1f}".format(pc.change_percent) }}%</td>
+                <td>{{ pc.city }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- Price Increases -->
+    {% if price_increases %}
+    <div class="section">
+        <h2>Price Increases</h2>
+        <table class="listing-table">
+            <tr><th>Title</th><th>Old Price</th><th>New Price</th><th>Change</th><th>City</th></tr>
+            {% for pc in price_increases %}
+            <tr>
+                <td><a href="{{ pc.listing_url }}" target="_blank">{{ pc.title|truncate(50) }}</a></td>
+                <td>{{ "{:,.0f}".format(pc.old_price) }} &euro;</td>
+                <td class="price-increase">{{ "{:,.0f}".format(pc.new_price) }} &euro;</td>
+                <td class="price-increase">{{ "{:+.1f}".format(pc.change_percent) }}%</td>
+                <td>{{ pc.city }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- Charts -->
+    {% if chart_price_trend %}
+    <div class="section">
+        <h2>Market Overview</h2>
+        <div class="chart-container">{{ chart_price_trend }}</div>
+        {% if chart_listings_count %}
+        <div class="chart-container">{{ chart_listings_count }}</div>
+        {% endif %}
+        {% if chart_price_distribution %}
+        <div class="chart-container">{{ chart_price_distribution }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Removed Listings -->
+    {% if removed_listings %}
+    <div class="section">
+        <h2>Removed Listings (Possibly Sold/Rented)</h2>
+        <table class="listing-table">
+            <tr><th>Title</th><th>Price</th><th>Size</th><th>Location</th><th>Last Seen</th></tr>
+            {% for p in removed_listings[:20] %}
+            <tr>
+                <td>{{ p.title|truncate(60) }}</td>
+                <td class="price">{{ "{:,.0f}".format(p.price) if p.price else "N/A" }} &euro;</td>
+                <td>{{ "{:.0f}".format(p.living_area_sqm) if p.living_area_sqm else "N/A" }} m&sup2;</td>
+                <td>{{ p.address_postal_code }} {{ p.address_city }}</td>
+                <td>{{ p.last_seen_at.strftime("%Y-%m-%d") if p.last_seen_at else "N/A" }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+    {% endif %}
+
+    <div class="footer">
+        Generated by Immo Property Search Automation | {{ report_date }}
+    </div>
+</body>
+</html>

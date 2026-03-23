@@ -1,0 +1,58 @@
+search:
+  germany:
+    - name: "Baden-Baden"
+      city: "Baden-Baden"
+      postal_codes: ["76530", "76532", "76534"]
+      radius_km: 0
+  france:
+    - name: "Alsace"
+      departments: ["67", "68"]
+
+filters:
+  buy:
+    min_price: 0
+    max_price: 1000000
+    min_rooms: 3
+    min_area_sqm: 50
+    property_types: ["apartment", "house", "land"]
+  rent:
+    min_price: 0
+    max_price: 2500
+    min_rooms: 3
+    min_area_sqm: 50
+    property_types: ["apartment", "house"]
+
+scrapers:
+  enabled:
+    germany: ["immoscout24", "immowelt", "kleinanzeigen", "wohnungsboerse"]
+    france: ["leboncoin", "seloger", "bienici", "pap", "paruvendu"]
+  request_delay_seconds: [3, 8]
+  max_pages_per_source: 20
+  headless: true
+  captcha_service: null
+
+reports:
+  output_dir: "./data/reports"
+  email:
+    enabled: true
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+    sender_email: "${GMAIL_ADDRESS}"
+    sender_password: "${GMAIL_APP_PASSWORD}"
+    recipient_email: "${RECIPIENT_EMAIL}"
+
+proxy:
+  enabled: false
+  type: "residential"
+  file: "./config/proxies.txt"
+
+dashboard:
+  port: 8501
+  host: "127.0.0.1"
+
+database:
+  path: "./data/immo.db"
+
+logging:
+  level: "INFO"
+  file: "./logs/immo.log"
