@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.config import AppConfig
@@ -25,7 +25,7 @@ def generate_pdf(html_content: str, config: AppConfig) -> Path | None:
     output_dir = Path(config.reports.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     pdf_path = output_dir / f"property_report_{date_str}.pdf"
 
     try:

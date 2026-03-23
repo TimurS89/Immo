@@ -17,10 +17,23 @@ DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
 
 def _resolve_env_vars(value: str) -> str:
     """Replace ${VAR} placeholders with environment variable values."""
+    missing: list[str] = []
+
     def replacer(match: re.Match) -> str:
         var_name = match.group(1)
-        return os.environ.get(var_name, "")
-    return re.sub(r"\$\{(\w+)}", replacer, value)
+        val = os.environ.get(var_name)
+        if val is None:
+            missing.append(var_name)
+            return ""
+        return val
+
+    result = re.sub(r"\$\{(\w+)}", replacer, value)
+    if missing:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"Missing environment variables: {', '.join(missing)}"
+        )
+    return result
 
 
 def _resolve_dict(d: dict) -> dict:

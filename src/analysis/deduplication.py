@@ -94,10 +94,12 @@ def _is_duplicate(a: Property, b: Property) -> bool:
     elif a.living_area_sqm or b.living_area_sqm:
         return False
 
-    # Rooms check (must match exactly if both present)
+    # Rooms check (must match exactly if both present; mismatch if only one has data)
     if a.rooms and b.rooms:
         if a.rooms != b.rooms:
             return False
+    elif a.rooms or b.rooms:
+        return False
 
     # Address similarity (fuzzy match)
     addr_a = _normalize_address(a)
@@ -107,10 +109,10 @@ def _is_duplicate(a: Property, b: Property) -> bool:
         if similarity < ADDRESS_SIMILARITY_THRESHOLD:
             return False
 
-    # Title similarity as backup
+    # Title similarity as supporting signal (high threshold to avoid false positives)
     if a.title and b.title:
         title_sim = fuzz.token_sort_ratio(a.title.lower(), b.title.lower())
-        if title_sim > 85:
+        if title_sim > 92:
             return True
 
     # If all checks passed (price, area, rooms, address), it's likely a duplicate

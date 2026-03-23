@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import smtplib
+import ssl
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -51,9 +52,10 @@ def send_report_email(
             msg.attach(pdf_attachment)
 
     try:
-        with smtplib.SMTP(email_cfg.smtp_server, email_cfg.smtp_port) as server:
+        with smtplib.SMTP(email_cfg.smtp_server, email_cfg.smtp_port, timeout=30) as server:
             server.ehlo()
-            server.starttls()
+            context = ssl.create_default_context()
+            server.starttls(context=context)
             server.ehlo()
             server.login(email_cfg.sender_email, email_cfg.sender_password)
             server.sendmail(
@@ -63,6 +65,12 @@ def send_report_email(
             )
         logger.info(f"Report email sent to {email_cfg.recipient_email}")
         return True
+    except smtplib.SMTPAuthenticationError:
+        logger.exception("SMTP authentication failed — check email credentials")
+        return False
+    except smtplib.SMTPException:
+        logger.exception("SMTP error while sending report email")
+        return False
     except Exception:
-        logger.exception("Failed to send report email")
+        logger.exception("Unexpected error sending report email")
         return False

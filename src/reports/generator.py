@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -32,7 +32,7 @@ def generate_report(session: Session, config: AppConfig, scrape_runs: list[Scrap
 
     Returns a dict with keys: html, pdf_path, email_sent.
     """
-    today = datetime.utcnow()
+    today = datetime.now(timezone.utc)
     one_week_ago = today - timedelta(days=7)
     report_date = today.strftime("%B %d, %Y")
 

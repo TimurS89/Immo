@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -70,13 +70,13 @@ class Property(Base):
     listing_url = Column(String(1000), nullable=False)
     contact_info = Column(String(500), nullable=True)
 
-    first_seen_at = Column(DateTime, default=datetime.utcnow)
-    last_seen_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    first_seen_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_seen_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     is_active = Column(Boolean, default=True)
 
     raw_data = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     price_history = relationship("PriceHistory", back_populates="property", cascade="all, delete-orphan")
 
@@ -94,7 +94,7 @@ class PriceHistory(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     property_id = Column(String(36), ForeignKey("properties.id", ondelete="CASCADE"), nullable=False)
     price = Column(Float, nullable=False)
-    recorded_at = Column(DateTime, default=datetime.utcnow)
+    recorded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     property = relationship("Property", back_populates="price_history")
 
@@ -108,7 +108,7 @@ class ScrapeRun(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     source = Column(String(50), nullable=False)
-    started_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime, nullable=True)
     listings_found = Column(Integer, default=0)
     new_listings = Column(Integer, default=0)

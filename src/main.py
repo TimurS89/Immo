@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rich.console import Console
@@ -81,38 +81,38 @@ async def run_scrapers(config: AppConfig) -> list[ScrapeRun]:
     _register_scrapers()
 
     enabled = get_enabled_scrapers(config)
-    session = get_session(config.database.path)
     scrape_runs = []
 
-    for source_name in enabled:
-        scraper_cls = SCRAPER_REGISTRY.get(source_name)
-        if not scraper_cls:
-            logger.warning(f"Unknown scraper: {source_name}")
-            continue
+    with get_session(config.database.path) as session:
+        for source_name in enabled:
+            scraper_cls = SCRAPER_REGISTRY.get(source_name)
+            if not scraper_cls:
+                logger.warning(f"Unknown scraper: {source_name}")
+                continue
 
-        logger.info(f"Starting scraper: {source_name}")
-        scraper = scraper_cls(config)
+            logger.info(f"Starting scraper: {source_name}")
+            scraper = scraper_cls(config)
 
-        run = ScrapeRun(source=source_name, started_at=datetime.utcnow(), status="running")
-        session.add(run)
-        session.commit()
+            try:
+                properties = await scraper.scrape()
+                run = scraper.save_results(session, properties)
+                scrape_runs.append(run)
+                logger.info(f"Completed {source_name}: {run.listings_found} found, {run.new_listings} new")
+            except Exception:
+                logger.exception(f"Scraper {source_name} failed")
+                run = ScrapeRun(
+                    source=source_name,
+                    started_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(timezone.utc),
+                    status="failed",
+                )
+                session.add(run)
+                session.commit()
+                scrape_runs.append(run)
 
-        try:
-            properties = await scraper.scrape()
-            run = scraper.save_results(session, properties)
-            scrape_runs.append(run)
-            logger.info(f"Completed {source_name}: {run.listings_found} found, {run.new_listings} new")
-        except Exception:
-            logger.exception(f"Scraper {source_name} failed")
-            run.status = "failed"
-            run.completed_at = datetime.utcnow()
-            session.commit()
-            scrape_runs.append(run)
+        # Mark properties not seen in this run as potentially inactive
+        _mark_inactive(session, enabled)
 
-    # Mark properties not seen in this run as potentially inactive
-    _mark_inactive(session, enabled)
-
-    session.close()
     return scrape_runs
 
 
@@ -169,24 +169,23 @@ async def run_pipeline(config: AppConfig) -> None:
 
     # 3. Deduplication
     console.rule("[bold]Analysis")
-    session = get_session(config.database.path)
-    dupe_count = deduplicate_properties(session)
-    logger.info(f"Deduplication: {dupe_count} duplicates found")
+    with get_session(config.database.path) as session:
+        dupe_count = deduplicate_properties(session)
+        logger.info(f"Deduplication: {dupe_count} duplicates found")
 
-    # 4. Generate report
-    console.rule("[bold]Report Generation")
-    result = generate_report(session, config, scrape_runs)
-    logger.info(
-        f"Report: {result['total_active']} active, {result['new_count']} new, "
-        f"email_sent={result['email_sent']}"
-    )
+        # 4. Generate report
+        console.rule("[bold]Report Generation")
+        result = generate_report(session, config, scrape_runs)
+        logger.info(
+            f"Report: {result['total_active']} active, {result['new_count']} new, "
+            f"email_sent={result['email_sent']}"
+        )
 
     if result["pdf_path"]:
         console.print(f"[green]PDF report saved: {result['pdf_path']}")
     if result["email_sent"]:
         console.print("[green]Report email sent successfully")
 
-    session.close()
     console.rule("[bold green]Pipeline Complete")
 
 
@@ -231,9 +230,8 @@ def main():
 
     if args.report_only:
         init_db(config.database.path)
-        session = get_session(config.database.path)
-        result = generate_report(session, config)
-        session.close()
+        with get_session(config.database.path) as session:
+            result = generate_report(session, config)
         console.print(f"[green]Report generated: {result['total_active']} active listings")
         return
 

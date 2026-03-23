@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
@@ -33,7 +33,7 @@ def track_price_changes(session: Session, days: int = 7) -> list[PriceChange]:
 
     Returns a list of PriceChange objects sorted by change percentage.
     """
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     # Get properties with multiple price history entries
     subquery = (

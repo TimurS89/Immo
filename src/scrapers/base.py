@@ -7,7 +7,7 @@ import logging
 import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -85,11 +85,18 @@ class BaseScraper(ABC):
         """Run the scraper and return a list of property data."""
         ...
 
+    @staticmethod
+    def _calc_price_per_sqm(price: float | None, area: float | None) -> float | None:
+        """Calculate price per square meter if both values are available."""
+        if price and area:
+            return price / area
+        return None
+
     def save_results(self, session: Session, properties: list[PropertyData]) -> ScrapeRun:
         """Save scraped properties to the database. Returns the ScrapeRun record."""
         run = ScrapeRun(
             source=self.SOURCE_NAME,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
             listings_found=len(properties),
         )
         session.add(run)
@@ -107,7 +114,7 @@ class BaseScraper(ABC):
                 )
 
                 if existing:
-                    # Update existing property
+                    # Update existing property — only overwrite if new value differs
                     price_changed = existing.price != prop_data.price and prop_data.price is not None
                     for attr in [
                         "title", "price", "rooms", "living_area_sqm", "plot_area_sqm",
@@ -117,14 +124,14 @@ class BaseScraper(ABC):
                         "image_urls", "listing_url", "description", "contact_info", "raw_data",
                     ]:
                         new_val = getattr(prop_data, attr)
-                        if new_val is not None:
+                        if new_val is not None and getattr(existing, attr) != new_val:
                             setattr(existing, attr, new_val)
-                    existing.last_seen_at = datetime.utcnow()
+                    existing.last_seen_at = datetime.now(timezone.utc)
                     existing.is_active = True
 
-                    # Recalculate price per sqm
-                    if existing.price and existing.living_area_sqm:
-                        existing.price_per_sqm = existing.price / existing.living_area_sqm
+                    existing.price_per_sqm = self._calc_price_per_sqm(
+                        existing.price, existing.living_area_sqm
+                    )
 
                     # Track price change
                     if price_changed:
@@ -135,10 +142,6 @@ class BaseScraper(ABC):
                     updated_count += 1
                 else:
                     # Create new property
-                    price_per_sqm = None
-                    if prop_data.price and prop_data.living_area_sqm:
-                        price_per_sqm = prop_data.price / prop_data.living_area_sqm
-
                     new_prop = Property(
                         external_id=prop_data.external_id,
                         source=prop_data.source,
@@ -148,7 +151,7 @@ class BaseScraper(ABC):
                         title=prop_data.title,
                         description=prop_data.description,
                         price=prop_data.price,
-                        price_per_sqm=price_per_sqm,
+                        price_per_sqm=self._calc_price_per_sqm(prop_data.price, prop_data.living_area_sqm),
                         rooms=prop_data.rooms,
                         living_area_sqm=prop_data.living_area_sqm,
                         plot_area_sqm=prop_data.plot_area_sqm,
@@ -184,7 +187,7 @@ class BaseScraper(ABC):
                 self.logger.exception(f"Error saving property {prop_data.external_id}")
                 error_count += 1
 
-        run.completed_at = datetime.utcnow()
+        run.completed_at = datetime.now(timezone.utc)
         run.new_listings = new_count
         run.updated_listings = updated_count
         run.errors = error_count

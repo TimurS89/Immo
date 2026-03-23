@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import statistics
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
@@ -20,7 +20,7 @@ def compute_market_snapshots(session: Session) -> list[MarketSnapshot]:
     Groups by country, listing_type, and property_type.
     Returns the list of created snapshots.
     """
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     one_week_ago = today - timedelta(days=7)
 
     snapshots = []
@@ -102,7 +102,7 @@ def get_historical_stats(
     weeks: int = 52,
 ) -> list[MarketSnapshot]:
     """Retrieve historical market snapshots for trend analysis."""
-    cutoff = datetime.utcnow() - timedelta(weeks=weeks)
+    cutoff = datetime.now(timezone.utc) - timedelta(weeks=weeks)
 
     query = session.query(MarketSnapshot).filter(
         MarketSnapshot.snapshot_date >= cutoff
