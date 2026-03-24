@@ -226,6 +226,6 @@ class BienIciScraper(BaseScraper):
             has_garage=has_garage,
             has_elevator=has_elevator,
             image_urls=photos[:10],
-            listing_url=f"{self.BASE_URL}/annonce/{listing_type}/{ext_id}",
+            listing_url=f"{self.BASE_URL}/annonce/{ext_id}",
             raw_data=ad,
         )

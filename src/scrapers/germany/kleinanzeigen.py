@@ -153,10 +153,14 @@ class KleinanzeigenScraper(BaseScraper):
         location_el = await card.query_selector('.aditem-main--top--left, [data-testid="ad-location"]')
         location_text = (await location_el.inner_text()).strip() if location_el else ""
         postal = ""
+        city = ""
         if location_text:
             postal_match = re.search(r"(\d{5})", location_text)
             if postal_match:
                 postal = postal_match.group(1)
+            city_match = re.search(r"(?:\d{5}\s+)?([A-ZÄÖÜa-zäöüß][\w\s-]+)", location_text)
+            if city_match:
+                city = city_match.group(1).strip()
 
         listing_url = href if href.startswith("http") else f"{self.BASE_URL}{href}"
 
@@ -170,7 +174,7 @@ class KleinanzeigenScraper(BaseScraper):
             price=price,
             rooms=rooms,
             living_area_sqm=area,
-            address_city="Baden-Baden",
+            address_city=city,
             address_postal_code=postal,
             listing_url=listing_url,
         )

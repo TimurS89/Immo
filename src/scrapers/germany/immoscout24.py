@@ -214,7 +214,7 @@ class ImmoScout24Scraper(BaseScraper):
                 rooms = attrs.get("numberOfRooms")
 
                 address = attrs.get("address", {})
-                city = address.get("city", "Baden-Baden")
+                city = address.get("city", "")
                 postal = address.get("postcode", "")
                 street = address.get("street", "")
                 lat = address.get("wgs84Coordinate", {}).get("latitude") if isinstance(address.get("wgs84Coordinate"), dict) else None
@@ -280,13 +280,17 @@ class ImmoScout24Scraper(BaseScraper):
 
         # Extract city from address
         address_el = await card.query_selector('.result-list-entry__address, [data-is24-qa="tileAddress"]')
-        address_text = await address_el.inner_text() if address_el else ""
-        city = "Baden-Baden"
+        address_text = (await address_el.inner_text()).strip() if address_el else ""
+        city = ""
         postal = ""
         if address_text:
             postal_match = re.search(r"(\d{5})", address_text)
             if postal_match:
                 postal = postal_match.group(1)
+            # Try to extract city name (often after postal code or as standalone)
+            city_match = re.search(r"(?:\d{5}\s+)?([A-ZÄÖÜa-zäöüß][\w\s-]+)", address_text)
+            if city_match:
+                city = city_match.group(1).strip()
 
         return PropertyData(
             external_id=ext_id,

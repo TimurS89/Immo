@@ -141,9 +141,11 @@ class WohnungsboerseScraper(BaseScraper):
             rooms = float(rooms_match.group(1).replace(",", "."))
 
         postal = ""
-        postal_match = re.search(r"(\d{5})\s+Baden-Baden", details_text)
+        city = ""
+        postal_match = re.search(r"(\d{5})\s+([A-ZÄÖÜa-zäöüß][\w\s-]+)", details_text)
         if postal_match:
             postal = postal_match.group(1)
+            city = postal_match.group(2).strip()
 
         listing_url = href if href.startswith("http") else f"{self.BASE_URL}{href}"
 
@@ -157,7 +159,7 @@ class WohnungsboerseScraper(BaseScraper):
             price=price,
             rooms=rooms,
             living_area_sqm=area,
-            address_city="Baden-Baden",
+            address_city=city,
             address_postal_code=postal,
             listing_url=listing_url,
         )

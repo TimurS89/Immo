@@ -144,7 +144,7 @@ class ImmoweltScraper(BaseScraper):
             rooms = rooms.get("value")
 
         geo = item.get("geo", {})
-        city = geo.get("city", {}).get("name", "Baden-Baden") if isinstance(geo, dict) else "Baden-Baden"
+        city = geo.get("city", {}).get("name", "") if isinstance(geo, dict) else ""
         postal = str(geo.get("zip", "")) if isinstance(geo, dict) else ""
         lat = geo.get("lat") if isinstance(geo, dict) else None
         lon = geo.get("lng") if isinstance(geo, dict) else None
@@ -209,7 +209,7 @@ class ImmoweltScraper(BaseScraper):
             price=price,
             rooms=rooms,
             living_area_sqm=area,
-            address_city="Baden-Baden",
+            address_city="",
             listing_url=f"{self.BASE_URL}/expose/{ext_id}",
         )
 

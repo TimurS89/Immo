@@ -211,7 +211,7 @@ class SeLogerScraper(BaseScraper):
             latitude=float(lat) if lat else None,
             longitude=float(lon) if lon else None,
             energy_rating=str(energy) if energy else None,
-            listing_url=f"{self.BASE_URL}/annonces/achat/appartement/{ext_id}.htm",
+            listing_url=f"{self.BASE_URL}/annonces/{ext_id}.htm",
             raw_data=card,
         )
 
@@ -237,6 +237,31 @@ class SeLogerScraper(BaseScraper):
 
         listing_url = href if href.startswith("http") else f"{self.BASE_URL}{href}"
 
+        # Try to extract area and rooms from title/details
+        area = None
+        rooms = None
+        details_el = await card.query_selector('[data-testid="sl.explore.card-criteria"], .card__criteria, .criteria')
+        details_text = (await details_el.inner_text()) if details_el else title
+        if details_text:
+            area_match = re.search(r"(\d+(?:[.,]\d+)?)\s*m²", details_text)
+            if area_match:
+                area = float(area_match.group(1).replace(",", "."))
+            rooms_match = re.search(r"(\d+)\s*(?:pièce|p\.)", details_text, re.IGNORECASE)
+            if rooms_match:
+                rooms = float(rooms_match.group(1))
+
+        location_el = await card.query_selector('[data-testid="sl.explore.card-location"], .card__location')
+        location_text = (await location_el.inner_text()).strip() if location_el else ""
+        city = ""
+        postal = ""
+        if location_text:
+            postal_match = re.search(r"(\d{5})\s+(.+)", location_text)
+            if postal_match:
+                postal = postal_match.group(1)
+                city = postal_match.group(2).strip()
+            else:
+                city = location_text
+
         return PropertyData(
             external_id=ext_id,
             source=self.SOURCE_NAME,
@@ -245,6 +270,10 @@ class SeLogerScraper(BaseScraper):
             property_type=property_type,
             title=title,
             price=price,
+            rooms=rooms,
+            living_area_sqm=area,
+            address_city=city,
+            address_postal_code=postal,
             listing_url=listing_url,
         )
 

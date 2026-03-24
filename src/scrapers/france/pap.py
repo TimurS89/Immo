@@ -9,13 +9,10 @@ from bs4 import BeautifulSoup
 
 from src.scrapers.base import BaseScraper, PropertyData
 
-SEARCH_PATHS = {
-    ("buy", "apartment"): "/annonce/vente-appartement-alsace-g43544-{page}",
-    ("buy", "house"): "/annonce/vente-maison-alsace-g43544-{page}",
-    ("buy", "land"): "/annonce/vente-terrain-alsace-g43544-{page}",
-    ("rent", "apartment"): "/annonce/location-appartement-alsace-g43544-{page}",
-    ("rent", "house"): "/annonce/location-maison-alsace-g43544-{page}",
-}
+TRANSACTION_MAP = {"buy": "vente", "rent": "location"}
+PROPERTY_MAP = {"apartment": "appartement", "house": "maison", "land": "terrain"}
+# Alsace department geo IDs on PAP
+DEPARTMENT_GEO_IDS = {"67": "g43544", "68": "g43545"}
 
 
 class PAPScraper(BaseScraper):
@@ -35,26 +32,32 @@ class PAPScraper(BaseScraper):
             for listing_type in ["buy", "rent"]:
                 filters = self.get_filters(listing_type)
                 for prop_type in filters.property_types:
-                    key = (listing_type, prop_type)
-                    if key not in SEARCH_PATHS:
+                    if prop_type not in PROPERTY_MAP:
                         continue
-                    try:
-                        listings = await self._scrape_type(
-                            client, key, listing_type, prop_type, filters
-                        )
-                        results.extend(listings)
-                    except Exception:
-                        self.logger.exception(f"Error scraping {listing_type}/{prop_type}")
+                    for area in self.get_search_areas():
+                        for dept in area.departments:
+                            geo_id = DEPARTMENT_GEO_IDS.get(dept)
+                            if not geo_id:
+                                continue
+                            try:
+                                listings = await self._scrape_type(
+                                    client, listing_type, prop_type, filters, geo_id
+                                )
+                                results.extend(listings)
+                            except Exception:
+                                self.logger.exception(f"Error scraping {listing_type}/{prop_type} dept {dept}")
 
         return results
 
     async def _scrape_type(
-        self, client, key, listing_type, property_type, filters
+        self, client, listing_type, property_type, filters, geo_id
     ) -> list[PropertyData]:
         results = []
+        transaction = TRANSACTION_MAP[listing_type]
+        prop_slug = PROPERTY_MAP[property_type]
 
         for page_num in range(1, self.max_pages + 1):
-            path = SEARCH_PATHS[key].format(page=page_num)
+            path = f"/annonce/{transaction}-{prop_slug}-{geo_id}-{page_num}"
             params = {}
             if filters.max_price:
                 params["prix-max"] = str(int(filters.max_price))
@@ -81,7 +84,7 @@ class PAPScraper(BaseScraper):
             results.extend(listings)
             self.logger.info(f"Page {page_num}: {len(listings)} listings")
 
-            next_link = soup.select_one('a[rel="next"], .pagination .next a, a:has-text("Suivant")')
+            next_link = soup.select_one('a[rel="next"], .pagination .next a, a:-soup-contains("Suivant")')
             if not next_link:
                 break
 

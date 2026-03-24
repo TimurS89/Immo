@@ -242,6 +242,31 @@ class LeBonCoinScraper(BaseScraper):
 
         listing_url = href if href.startswith("http") else f"{self.BASE_URL}{href}"
 
+        # Try to extract area, rooms, location from card details
+        area = None
+        rooms = None
+        details_el = await card.query_selector('[data-qa-id="aditem_details"], .ad-card__criteria, .item_infos')
+        details_text = (await details_el.inner_text()) if details_el else title
+        if details_text:
+            area_match = re.search(r"(\d+(?:[.,]\d+)?)\s*m²", details_text)
+            if area_match:
+                area = float(area_match.group(1).replace(",", "."))
+            rooms_match = re.search(r"(\d+)\s*(?:pièce|p\.)", details_text, re.IGNORECASE)
+            if rooms_match:
+                rooms = float(rooms_match.group(1))
+
+        location_el = await card.query_selector('[data-qa-id="aditem_location"], .ad-card__location')
+        location_text = (await location_el.inner_text()).strip() if location_el else ""
+        city = ""
+        postal = ""
+        if location_text:
+            postal_match = re.search(r"(\d{5})\s+(.+)", location_text)
+            if postal_match:
+                postal = postal_match.group(1)
+                city = postal_match.group(2).strip()
+            else:
+                city = location_text
+
         return PropertyData(
             external_id=ext_id,
             source=self.SOURCE_NAME,
@@ -250,6 +275,10 @@ class LeBonCoinScraper(BaseScraper):
             property_type=property_type,
             title=title,
             price=price,
+            rooms=rooms,
+            living_area_sqm=area,
+            address_city=city,
+            address_postal_code=postal,
             listing_url=listing_url,
         )
 
