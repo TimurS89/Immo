@@ -145,6 +145,11 @@ class Listing(Base):
     user_viewing_scheduled: Mapped[datetime | None] = mapped_column(DateTime)
     user_notes: Mapped[str | None] = mapped_column(Text)
 
+    # --- De-duplication: a secondary listing points at its cross-portal primary.
+    # Plain indexed id reference (no DB-level FK): SQLite can't ALTER-add a FK and
+    # the link is advisory for this personal tool. Set by lux_monitor.dedup.
+    duplicate_of_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+
     # --- Relationships ---
     price_history_entries: Mapped[list["PriceHistoryEntry"]] = relationship(
         back_populates="listing",

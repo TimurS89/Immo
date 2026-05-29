@@ -67,3 +67,28 @@ Override the DB location with `LUX_MONITOR_DB_URL` if needed.
 ```bash
 pytest -q                   # expect: all green
 ```
+
+## 7. Luxembourg scrapers (live run — workstation only)
+
+The LU scrapers (`src/scrapers/luxembourg/`) target athome.lu, immotop.lu and
+wortimmo.lu and write to `lux_monitor`. Their **parsing logic is unit-tested
+against synthetic fixtures** in `tests/fixtures/luxembourg/`; the SERP selectors
+in those fixtures are *representative placeholders* and **must be validated
+against live HTML** before the first real run (capture a few real SERP pages and
+adjust the selectors / re-save fixtures).
+
+Live scraping needs the Playwright browser + network egress (blocked in the cloud
+sandbox), so run it on the workstation:
+
+```python
+import asyncio
+from src.config import load_config
+from src.lux_monitor.db import get_engine, make_session_factory, init_db
+from src.scrapers.luxembourg import run_luxembourg
+
+cfg = load_config()
+engine = init_db(get_engine())
+session = make_session_factory(engine)()
+print(asyncio.run(run_luxembourg(cfg, session)))  # scrape -> save -> dedup
+```
+
