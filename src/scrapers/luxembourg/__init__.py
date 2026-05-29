@@ -27,6 +27,7 @@ async def run_luxembourg(
     config,
     session,
     *,
+    scrape: bool = True,
     dedup: bool = True,
     commute: bool = True,
     analyze: bool = True,
@@ -38,6 +39,8 @@ async def run_luxembourg(
     Intended entry point for the workstation live run (Phase 3 item 7). The
     post-scrape stages run in dependency order: dedup -> commute -> analyze ->
     score (scoring reads both the commute times and the description quality).
+    Pass ``scrape=False`` to recompute the offline stages on existing data
+    without any network access.
     """
     from src.lux_monitor.analysis import apply_analysis
     from src.lux_monitor.commute import populate_commute_times
@@ -48,15 +51,16 @@ async def run_luxembourg(
     enabled = lu.enabled_portals() if (lu and lu.enabled) else list(LU_SCRAPERS)
 
     totals = {"new": 0, "updated": 0, "deactivated": 0}
-    for name in enabled:
-        scraper_cls = LU_SCRAPERS.get(name)
-        if not scraper_cls:
-            continue
-        scraper = scraper_cls(config)
-        listings = await scraper.scrape()
-        counts = scraper.save_listings(session, listings)
-        for k in totals:
-            totals[k] += counts.get(k, 0)
+    if scrape:
+        for name in enabled:
+            scraper_cls = LU_SCRAPERS.get(name)
+            if not scraper_cls:
+                continue
+            scraper = scraper_cls(config)
+            listings = await scraper.scrape()
+            counts = scraper.save_listings(session, listings)
+            for k in totals:
+                totals[k] += counts.get(k, 0)
 
     if dedup:
         totals["duplicates"] = mark_duplicates(session)

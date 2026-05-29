@@ -47,11 +47,11 @@ playwright install --with-deps chromium
 ## 4. Secrets (`.env`)
 
 ```bash
-cp .env.example .env
-# Fill in GMAIL_ADDRESS / GMAIL_APP_PASSWORD / RECIPIENT_EMAIL
-# (Phase 6 will add a Telegram token; etc.)
-# NOTE: commute times use a crude offline estimate (src/lux_monitor/commute.py) —
-# no Google Maps key, no network, no cost.
+cp .env.example .env        # optional — the monitor runs with no .env at all
+# No API keys are required: commute is an offline estimate and description
+# analysis is heuristic (no Google Maps key, no LLM key).
+# Optionally set LUX_MONITOR_DB_URL to relocate the database.
+# Email alerts are not implemented yet (GMAIL_* are placeholders for later).
 ```
 
 ## 5. Database (Alembic-managed, `data/monitor.db`)
@@ -79,18 +79,44 @@ in those fixtures are *representative placeholders* and **must be validated
 against live HTML** before the first real run (capture a few real SERP pages and
 adjust the selectors / re-save fixtures).
 
-Live scraping needs the Playwright browser + network egress (blocked in the cloud
-sandbox), so run it on the workstation:
+Only **scraping** needs network egress (blocked in the cloud sandbox). The LU
+scrapers use plain `httpx` + BeautifulSoup, so the Playwright browser is **not**
+required for them — you can skip `playwright install` if you only run the LU
+monitor.
 
-```python
-import asyncio
-from src.config import load_config
-from src.lux_monitor.db import get_engine, make_session_factory, init_db
-from src.scrapers.luxembourg import run_luxembourg
+### Run it
 
-cfg = load_config()
-engine = init_db(get_engine())
-session = make_session_factory(engine)()
-print(asyncio.run(run_luxembourg(cfg, session)))  # scrape -> save -> dedup
+```bash
+alembic upgrade head                          # once: build the schema
+python -m src.lux_monitor run --max-pages 1   # first: a small, polite test run
+python -m src.lux_monitor run                 # full pipeline + shortlist
+python -m src.lux_monitor shortlist --top 20  # view the shortlist anytime
+python -m src.lux_monitor run --no-scrape     # recompute scores offline (no network)
 ```
+
+`run` does: scrape → save → dedup → commute (offline estimate) → analyze
+(heuristics) → score, then prints the ranked shortlist. `--no-scrape` re-runs
+only the offline stages — handy after tuning. If you skip Alembic, `run
+--init-db` will `create_all` the schema as a dev fallback.
+
+### Schedule it (cron)
+
+`scripts/run_lux.sh` activates the venv, runs the pipeline, and logs to
+`logs/lux_run.log`. Add it to your crontab (`crontab -e`):
+
+```cron
+# every day at 07:15
+15 7 * * *  /ABSOLUTE/PATH/TO/Immo/scripts/run_lux.sh
+```
+
+### Tuning knobs
+
+All non-negotiables live in `config/luxembourg.py`:
+- `TARGET_COMMUNES` — the commune set (+ foreign %, school coords).
+- `HARD_FILTERS_RENT` / `HARD_FILTERS_BUY` — bedrooms, surface, price/rent band, commute caps.
+- `SCORING_WEIGHTS` — soft-score weights (must sum to 100).
+
+Estimator/heuristic constants live in `src/lux_monitor/commute.py` (speeds, rush
+factor) and `src/lux_monitor/analysis.py` (keyword rules, penalties/bonuses).
+After changing any of these, re-rank existing data with `run --no-scrape`.
 

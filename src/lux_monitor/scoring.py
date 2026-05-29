@@ -235,7 +235,7 @@ def top_listings(
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
-def _render_table(rows: list[Listing]) -> None:
+def render_shortlist_table(rows: list[Listing]) -> None:
     from rich.console import Console
     from rich.table import Table
 
@@ -307,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
         if not rows:
             print("No scored listings yet — run with --apply (after scraping + commute).")
             return 0
-        _render_table(rows)
+        render_shortlist_table(rows)
     return 0
 
 
