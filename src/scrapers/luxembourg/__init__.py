@@ -24,14 +24,25 @@ __all__ = ["AtHomeScraper", "ImmotopScraper", "WortimmoScraper", "LU_SCRAPERS", 
 
 
 async def run_luxembourg(
-    config, session, *, dedup: bool = True, commute: bool = True
+    config,
+    session,
+    *,
+    dedup: bool = True,
+    commute: bool = True,
+    analyze: bool = True,
+    score: bool = True,
 ) -> dict:
-    """Scrape all enabled LU portals, persist, de-duplicate, and estimate commutes.
+    """Scrape all enabled LU portals, persist, de-dup, estimate commutes,
+    analyze descriptions, and score.
 
-    Intended entry point for the workstation live run (Phase 3 item 7).
+    Intended entry point for the workstation live run (Phase 3 item 7). The
+    post-scrape stages run in dependency order: dedup -> commute -> analyze ->
+    score (scoring reads both the commute times and the description quality).
     """
+    from src.lux_monitor.analysis import apply_analysis
     from src.lux_monitor.commute import populate_commute_times
     from src.lux_monitor.dedup import mark_duplicates
+    from src.lux_monitor.scoring import apply_scores
 
     lu = config.search_areas.get("LU")
     enabled = lu.enabled_portals() if (lu and lu.enabled) else list(LU_SCRAPERS)
@@ -51,4 +62,8 @@ async def run_luxembourg(
         totals["duplicates"] = mark_duplicates(session)
     if commute:
         totals["commute_filled"] = populate_commute_times(session)
+    if analyze:
+        totals["analyzed"] = apply_analysis(session)
+    if score:
+        totals.update(apply_scores(session))
     return totals
