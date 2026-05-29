@@ -49,7 +49,9 @@ playwright install --with-deps chromium
 ```bash
 cp .env.example .env
 # Fill in GMAIL_ADDRESS / GMAIL_APP_PASSWORD / RECIPIENT_EMAIL
-# (Phase 4+ will add GOOGLE_MAPS_API_KEY; Phase 6 Telegram token; etc.)
+# (Phase 6 will add a Telegram token; etc.)
+# NOTE: commute times use a crude offline estimate (src/lux_monitor/commute.py) —
+# no Google Maps key, no network, no cost.
 ```
 
 ## 5. Database (Alembic-managed, `data/monitor.db`)

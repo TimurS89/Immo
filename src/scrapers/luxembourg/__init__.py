@@ -23,11 +23,14 @@ LU_SCRAPERS = {
 __all__ = ["AtHomeScraper", "ImmotopScraper", "WortimmoScraper", "LU_SCRAPERS", "run_luxembourg"]
 
 
-async def run_luxembourg(config, session, *, dedup: bool = True) -> dict:
-    """Scrape all enabled LU portals, persist, and (optionally) de-duplicate.
+async def run_luxembourg(
+    config, session, *, dedup: bool = True, commute: bool = True
+) -> dict:
+    """Scrape all enabled LU portals, persist, de-duplicate, and estimate commutes.
 
     Intended entry point for the workstation live run (Phase 3 item 7).
     """
+    from src.lux_monitor.commute import populate_commute_times
     from src.lux_monitor.dedup import mark_duplicates
 
     lu = config.search_areas.get("LU")
@@ -46,4 +49,6 @@ async def run_luxembourg(config, session, *, dedup: bool = True) -> dict:
 
     if dedup:
         totals["duplicates"] = mark_duplicates(session)
+    if commute:
+        totals["commute_filled"] = populate_commute_times(session)
     return totals
