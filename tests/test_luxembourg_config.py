@@ -24,7 +24,9 @@ LUX = ZoneInfo("Europe/Luxembourg")
 # --- target communes ----------------------------------------------------------
 
 def test_target_communes_complete():
-    assert len(TARGET_COMMUNES) == 10
+    assert len(TARGET_COMMUNES) == 8
+    assert "Luxembourg" in TARGET_COMMUNES  # Ville de Luxembourg (the capital)
+    assert not ({"Kopstal", "Bridel", "Steinsel"} & set(TARGET_COMMUNES))  # trimmed
     required = {"foreign_pct", "has_train", "primary", "school_lat", "school_lng", "appeal"}
     for name, meta in TARGET_COMMUNES.items():
         assert required <= set(meta), f"{name} missing keys"
@@ -34,7 +36,7 @@ def test_target_communes_complete():
 
 
 def test_primary_communes():
-    assert set(PRIMARY_COMMUNES) == {"Walferdange", "Bertrange", "Strassen", "Mamer"}
+    assert set(PRIMARY_COMMUNES) == {"Luxembourg", "Walferdange", "Bertrange", "Strassen", "Mamer"}
 
 
 # --- hard filters -------------------------------------------------------------

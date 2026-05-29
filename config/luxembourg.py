@@ -66,8 +66,12 @@ def next_rush_hour_departure(now: datetime | None = None) -> datetime:
 # --- Target communes (search and filter scope) ----------------------------------
 # NOTE: school_lat/school_lng are reasonable starting points for the main
 # école fondamentale of each commune; Phase 4 (routing.py) re-geocodes them
-# precisely via Google before computing walking times.
+# precisely via Google before computing walking times. For Ville de Luxembourg
+# (many schools across quarters) the coordinate is a central placeholder.
 TARGET_COMMUNES: dict[str, dict] = {
+    "Luxembourg":    {"foreign_pct": 70, "has_train": True,  "primary": True,
+                      "school_lat": 49.6117, "school_lng": 6.1250,
+                      "appeal": "capital; office (Kirchberg) in-commune, transport hub, all amenities, expat-dense"},
     "Walferdange":   {"foreign_pct": 54, "has_train": True,  "primary": True,
                       "school_lat": 49.6584, "school_lng": 6.1306,
                       "appeal": "family, forest, train, school cluster strong"},
@@ -83,21 +87,12 @@ TARGET_COMMUNES: dict[str, dict] = {
     "Hesperange":    {"foreign_pct": 55, "has_train": False, "primary": False,
                       "school_lat": 49.5757, "school_lng": 6.1531,
                       "appeal": "south of city, expat-friendly"},
-    "Bridel":        {"foreign_pct": 45, "has_train": False, "primary": False,
-                      "school_lat": 49.6500, "school_lng": 6.0833,
-                      "appeal": "leafy north, quiet"},
-    "Steinsel":      {"foreign_pct": 40, "has_train": False, "primary": False,
-                      "school_lat": 49.6745, "school_lng": 6.1245,
-                      "appeal": "forest adjacent, quiet, value, Grünewald"},
     "Sandweiler":    {"foreign_pct": 45, "has_train": False, "primary": False,
                       "school_lat": 49.6147, "school_lng": 6.2050,
                       "appeal": "close to office and airport"},
     "Howald":        {"foreign_pct": 55, "has_train": False, "primary": False,
                       "school_lat": 49.5938, "school_lng": 6.1338,
                       "appeal": "edge of city, well-connected"},
-    "Kopstal":       {"foreign_pct": 45, "has_train": False, "primary": False,
-                      "school_lat": 49.6664, "school_lng": 6.0883,
-                      "appeal": "quiet, near Bridel"},
 }
 
 PRIMARY_COMMUNES: tuple[str, ...] = tuple(
