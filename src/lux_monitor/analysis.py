@@ -5,7 +5,7 @@ listing title + description with a small multilingual (FR/DE/EN), accent-
 insensitive keyword ruleset, combine it with a few structured cross-checks, and
 produce the four fields the rest of the system already expects:
 
-    llm_quality_score : int 0..100   (the 7%% scoring subscore)
+    llm_quality_score : int 0..100   (the 7% scoring subscore)
     llm_red_flags     : list[str]
     llm_highlights    : list[str]
     llm_summary       : str
@@ -39,9 +39,15 @@ RECENT_YEARS = 5  # construction/renovation within N years counts as "recent"
 
 
 def _normalize(text: str) -> str:
-    """Lowercase and strip diacritics so 'rénové' and 'renove' both match."""
+    """Lowercase, strip diacritics, and collapse whitespace.
+
+    De-accenting lets 'rénové' and 'renove' both match; whitespace collapsing
+    keeps multi-word keywords ('proche transports') matching across the newlines
+    / runs of spaces that appear in live HTML.
+    """
     decomposed = unicodedata.normalize("NFKD", text.lower())
-    return "".join(c for c in decomposed if not unicodedata.combining(c))
+    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", stripped)
 
 
 @dataclass(frozen=True)
@@ -79,11 +85,15 @@ RED_FLAG_RULES: tuple[_Rule, ...] = (
 # Bonuses (added).
 HIGHLIGHT_RULES: tuple[_Rule, ...] = (
     _rule("renovated / new", 14,
-          "rénové", "neuf", "construction récente", "entièrement rénové",
+          # French adjective inflects for gender/number (maison rénovée, ...).
+          # "neuf" is also "nine" but room counts use digits, so we keep it.
+          "rénové", "rénovée", "rénovés", "rénovées", "neuf", "neuve",
+          "construction récente", "entièrement rénové", "entièrement rénovée",
           "renoviert", "neubau", "neuwertig", "renovated", "new build",
           "brand new", "newly built"),
     _rule("bright / sunny", 5,
-          "lumineux", "ensoleillé", "hell", "lichtdurchflutet", "bright", "sunny"),
+          "lumineux", "lumineuse", "ensoleillé", "ensoleillée", "hell",
+          "lichtdurchflutet", "bright", "sunny"),
     _rule("quiet / residential", 6,
           "calme", "quartier résidentiel", "ruhig", "quiet", "residential area"),
     _rule("near transport / school", 6,

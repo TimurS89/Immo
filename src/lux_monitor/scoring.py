@@ -13,7 +13,8 @@ Two stages:
    subscores using ``config.luxembourg.SCORING_WEIGHTS`` (weights sum to 100, so
    the total is already on a 0–100 scale). Missing inputs score *neutral* (0.5)
    rather than best/worst, so absent data neither rewards nor unfairly punishes a
-   listing. ``llm_quality_score`` stays neutral until Phase 6 fills it in.
+   listing. ``llm_quality_score`` is populated by the heuristic description
+   analysis (``analysis.py``); it scores neutral when absent.
 
 :func:`apply_scores` filters + scores every active, non-duplicate listing and
 writes ``Listing.score_total`` (``None`` ⇔ filtered out). A small Rich CLI

@@ -69,6 +69,19 @@ def test_multilingual_and_accents():
     assert "renovated / new" in analyze_listing(_orm(desc="entierement renove")).highlights
 
 
+def test_french_inflections():
+    # feminine / plural adjective forms must still register
+    assert "renovated / new" in analyze_listing(_orm(desc="Belle maison renovee a vendre")).highlights
+    assert "renovated / new" in analyze_listing(_orm(desc="deux appartements renoves")).highlights
+    assert "bright / sunny" in analyze_listing(_orm(desc="cuisine lumineuse et ensoleillee")).highlights
+
+
+def test_whitespace_collapsed_for_multiword():
+    # newline / double space between tokens of a multi-word keyword
+    a = analyze_listing(_orm(desc="situe tout proche\n  transports en commun"))
+    assert "near transport / school" in a.highlights
+
+
 def test_viager_heavy_penalty():
     a = analyze_listing(_orm(desc="Vente en viager occupe."))
     assert "viager (life annuity)" in a.red_flags
