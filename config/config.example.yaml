@@ -1,6 +1,8 @@
 # Country-keyed configuration. Add a country = add an entry here (no code changes).
 # DE and FR are kept for the cross-border option but DISABLED by default.
-# Luxembourg (LU) is added in Phase 2.
+# Luxembourg (LU) is auto-registered (enabled) from config/luxembourg.py — the
+# non-negotiable hard values (communes, filters, weights, DWS office) live there,
+# not here. Add an "LU:" block below only to override the defaults.
 search_areas:
   DE:
     enabled: false            # cross-border option, off by default

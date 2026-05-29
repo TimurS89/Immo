@@ -163,6 +163,7 @@ class ListingRead(ListingBase):
     # LLM analysis
     llm_quality_score: int | None = None
     llm_red_flags: list[str] | None = None
+    llm_highlights: list[str] | None = None
     llm_summary: str | None = None
 
     # Workflow tracking

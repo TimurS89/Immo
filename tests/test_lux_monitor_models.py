@@ -216,3 +216,33 @@ def test_alembic_migration_applies(tmp_path):
     finally:
         engine.dispose()
     assert {"listings", "price_history_entries", "alembic_version"} <= tables
+
+
+# --- JSON / LLM columns -------------------------------------------------------
+
+def test_llm_json_columns(session):
+    listing = _sample_create().to_orm()
+    session.add(listing)
+    session.commit()
+
+    # Populated later by llm.py — set the JSON-list columns + summary.
+    listing.llm_quality_score = 82
+    listing.llm_red_flags = ["north-facing", "near motorway"]
+    listing.llm_highlights = ["renovated kitchen", "large garden"]
+    listing.llm_summary = "Spacious family home, minor noise concern."
+    session.commit()
+
+    loaded = session.get(Listing, listing.id)
+    assert loaded.llm_quality_score == 82
+    assert loaded.llm_red_flags == ["north-facing", "near motorway"]
+    assert loaded.llm_highlights == ["renovated kitchen", "large garden"]
+
+    # MutableList tracks in-place append without reassignment.
+    loaded.llm_highlights.append("south terrace")
+    session.commit()
+    assert session.get(Listing, listing.id).llm_highlights[-1] == "south terrace"
+
+    # ListingRead surfaces both JSON lists.
+    read = ListingRead.model_validate(loaded)
+    assert read.llm_highlights == ["renovated kitchen", "large garden", "south terrace"]
+    assert read.llm_red_flags == ["north-facing", "near motorway"]

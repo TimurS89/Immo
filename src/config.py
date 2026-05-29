@@ -207,6 +207,22 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
         for code, cc in (raw.get("search_areas", {}) or {}).items()
     }
 
+    # Always register Luxembourg from the canonical constants (config/luxembourg.py)
+    # unless the YAML explicitly defines an "LU" entry (which then takes precedence).
+    if "LU" not in search_areas:
+        import sys
+        if str(PROJECT_ROOT) not in sys.path:
+            sys.path.insert(0, str(PROJECT_ROOT))
+        try:
+            from config.luxembourg import lu_country_config
+            search_areas["LU"] = lu_country_config()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not load Luxembourg config from config/luxembourg.py",
+                exc_info=True,
+            )
+
     filters = raw.get("filters", {})
 
     return AppConfig(

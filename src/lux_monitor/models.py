@@ -121,8 +121,9 @@ class Listing(Base):
 
     # --- LLM analysis (populated by llm.py) ---
     llm_quality_score: Mapped[int | None] = mapped_column(Integer)  # 0–100
-    # Stored as a JSON list of strings (the spec comment reads "JSON list").
+    # Stored as JSON lists of strings (the spec comments read "JSON list").
     llm_red_flags: Mapped[list[str] | None] = mapped_column(MutableList.as_mutable(JSON))
+    llm_highlights: Mapped[list[str] | None] = mapped_column(MutableList.as_mutable(JSON))
     llm_summary: Mapped[str | None] = mapped_column(Text)
 
     # --- Workflow tracking ---
