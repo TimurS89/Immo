@@ -1,11 +1,9 @@
 """Alembic environment for the Luxembourg property monitor.
 
-Targets the ``src/lux_monitor`` schema. The DB URL comes from the
-``LUX_MONITOR_DB_URL`` env var when set, otherwise from ``alembic.ini``.
-
-NOTE: when the legacy ``src/database`` schema is later folded into migrations
-(see ADAPTATION_PLAN.md / Phase 1), add its metadata to ``target_metadata`` as a
-list — Alembic autogenerate accepts ``[Base.metadata, LegacyBase.metadata]``.
+Targets the whole project schema: the canonical ``src/lux_monitor`` model plus
+the enum-decoupled legacy ``src/database`` model (kept for the disabled DE/FR
+cross-border option). The DB URL comes from the ``LUX_MONITOR_DB_URL`` env var
+when set, otherwise from ``alembic.ini`` (default ``data/monitor.db``).
 """
 
 from __future__ import annotations
@@ -24,7 +22,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.lux_monitor.models import Base  # noqa: E402
+from src.lux_monitor.models import Base as LuxBase  # noqa: E402
+from src.database.models import Base as LegacyBase  # noqa: E402
+
+# One migration system for the whole project. The canonical LU schema plus the
+# (now enum-decoupled) legacy DE/FR schema, all in monitor.db.
+ALL_METADATA = [LuxBase.metadata, LegacyBase.metadata]
 
 config = context.config
 
@@ -36,7 +39,7 @@ if _env_url:
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = Base.metadata
+target_metadata = ALL_METADATA
 
 
 def run_migrations_offline() -> None:

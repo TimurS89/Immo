@@ -68,10 +68,11 @@ def setup_logging(config: AppConfig) -> None:
 
 
 def get_enabled_scrapers(config: AppConfig) -> list[str]:
-    """Get the list of enabled scraper names from config."""
-    enabled = []
-    for sources in config.scrapers.enabled.values():
-        enabled.extend(sources)
+    """Enabled scraper names: the enabled portals of every enabled country."""
+    enabled: list[str] = []
+    for country_cfg in config.search_areas.values():
+        if country_cfg.enabled:
+            enabled.extend(country_cfg.enabled_portals())
     return enabled
 
 

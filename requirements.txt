@@ -1,6 +1,6 @@
 # Core
-playwright>=1.40
-playwright-stealth>=1.0.6
+playwright>=1.49           # noble (Ubuntu 24.04) install --with-deps support
+playwright-stealth>=1.0.6,<2.0   # 1.x stealth_async API
 httpx>=0.25
 beautifulsoup4>=4.12
 lxml>=4.9
@@ -17,8 +17,8 @@ pydantic>=2.5
 # Reports
 jinja2>=3.1
 plotly>=5.18
-kaleido>=0.2
-weasyprint>=60
+# kaleido dropped (static image export unused; charts are interactive HTML)
+weasyprint>=62
 
 # Dashboard
 streamlit>=1.29

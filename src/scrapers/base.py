@@ -75,10 +75,11 @@ class BaseScraper(ABC):
         return self.config.filters_buy if listing_type == "buy" else self.config.filters_rent
 
     def get_search_areas(self) -> list[SearchArea]:
-        """Get the search areas for this scraper's country."""
-        if self.COUNTRY == "DE":
-            return self.config.search_germany
-        return self.config.search_france
+        """Get the search areas for this scraper's country (empty if disabled)."""
+        country_cfg = self.config.search_areas.get(self.COUNTRY)
+        if not country_cfg or not country_cfg.enabled:
+            return []
+        return country_cfg.areas
 
     @abstractmethod
     async def scrape(self) -> list[PropertyData]:
