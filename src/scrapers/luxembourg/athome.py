@@ -54,7 +54,6 @@ def _to_int(value) -> int | None:
 class AtHomeScraper(LuxBaseScraper):
     SOURCE_NAME = "athome"
     BASE_URL = "https://www.athome.lu"
-    STATIC_URL = "https://i1.static.athome.eu"
 
     def search_url(self, commune: str, listing_type: str, page: int = 1) -> str:
         tr = "rent" if listing_type == "rent" else "buy"
@@ -126,8 +125,12 @@ class AtHomeScraper(LuxBaseScraper):
             return None
         url = path if path.startswith("http") else f"{cls.BASE_URL}{path}"
 
+        # Three categories: furnished rental, long-term rental, or sale.
         txn = (entry.get("transactionType") or listing_type or "").lower()
-        lt = "rent" if txn == "rent" else "buy"
+        if txn == "rent":
+            lt = "furnished" if entry.get("hasFurnished") == 1 else "rent"
+        else:
+            lt = "buy"
 
         descs = entry.get("descriptions") or {}
         description = descs.get("fr") or descs.get("en") or descs.get("de") or entry.get("description") or ""
@@ -166,12 +169,12 @@ class AtHomeScraper(LuxBaseScraper):
             description_raw=description,
             description_lang=lang,
             title=f"{subtype} - {address.get('city') or commune}",
-            photos_urls=cls._photo_urls(entry.get("media")),
+            photos_urls=[],  # we intentionally don't store photos — keep the advert link only
         )
-        if lt == "rent":
-            fields["rent_eur"] = price
-        else:
+        if lt == "buy":
             fields["price_eur"] = price
+        else:  # rent or furnished -> a rental price
+            fields["rent_eur"] = price
         return ListingCreate(**fields)
 
     @staticmethod
@@ -182,16 +185,6 @@ class AtHomeScraper(LuxBaseScraper):
             if city == name or city.startswith(f"{name}-") or city.startswith(f"{name} "):
                 return name
         return city or None
-
-    @classmethod
-    def _photo_urls(cls, media) -> list[str]:
-        items = media.get("items") if isinstance(media, dict) else media
-        urls = []
-        for it in items or []:
-            uri = it.get("uri") if isinstance(it, dict) else None
-            if uri:
-                urls.append(f"{cls.STATIC_URL}{uri}")
-        return urls[:10]
 
     async def scrape(self) -> list[ListingCreate]:
         """Live scrape (workstation): httpx SERP per commune + listing type."""

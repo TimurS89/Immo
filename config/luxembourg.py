@@ -64,35 +64,31 @@ def next_rush_hour_departure(now: datetime | None = None) -> datetime:
 
 
 # --- Target communes (search and filter scope) ----------------------------------
-# NOTE: school_lat/school_lng are reasonable starting points for the main
-# école fondamentale of each commune; Phase 4 (routing.py) re-geocodes them
-# precisely via Google before computing walking times. For Ville de Luxembourg
-# (many schools across quarters) the coordinate is a central placeholder.
+# lat/lng are the commune centre (a single anchor point) used only for the
+# approximate drive/PT commute estimate to the office. Deliberately coarse — no
+# per-listing geocoding or walking-distance precision.
 TARGET_COMMUNES: dict[str, dict] = {
     "Luxembourg":    {"foreign_pct": 70, "has_train": True,  "primary": True,
-                      "school_lat": 49.6117, "school_lng": 6.1250,
+                      "lat": 49.6116, "lng": 6.1319,
                       "appeal": "capital; office (Kirchberg) in-commune, transport hub, all amenities, expat-dense"},
-    "Walferdange":   {"foreign_pct": 54, "has_train": True,  "primary": True,
-                      "school_lat": 49.6584, "school_lng": 6.1306,
-                      "appeal": "family, forest, train, school cluster strong"},
-    "Bertrange":     {"foreign_pct": 55, "has_train": False, "primary": True,
-                      "school_lat": 49.6094, "school_lng": 6.0670,
-                      "appeal": "close to office, expat-dense, shopping"},
     "Strassen":      {"foreign_pct": 65, "has_train": False, "primary": True,
-                      "school_lat": 49.6193, "school_lng": 6.0815,
+                      "lat": 49.6206, "lng": 6.0747,
                       "appeal": "closest to office, highest expat %, premium pricing"},
+    "Bertrange":     {"foreign_pct": 55, "has_train": False, "primary": True,
+                      "lat": 49.6092, "lng": 6.0530,
+                      "appeal": "close to office, expat-dense, Belle Étoile shopping"},
     "Mamer":         {"foreign_pct": 54, "has_train": True,  "primary": True,
-                      "school_lat": 49.6300, "school_lng": 6.0235,
+                      "lat": 49.6278, "lng": 6.0228,
                       "appeal": "European School, family, train station"},
+    "Walferdange":   {"foreign_pct": 54, "has_train": True,  "primary": True,
+                      "lat": 49.6586, "lng": 6.1306,
+                      "appeal": "family, forest, train, schools"},
     "Hesperange":    {"foreign_pct": 55, "has_train": False, "primary": False,
-                      "school_lat": 49.5757, "school_lng": 6.1531,
-                      "appeal": "south of city, expat-friendly"},
-    "Sandweiler":    {"foreign_pct": 45, "has_train": False, "primary": False,
-                      "school_lat": 49.6147, "school_lng": 6.2050,
-                      "appeal": "close to office and airport"},
-    "Howald":        {"foreign_pct": 55, "has_train": False, "primary": False,
-                      "school_lat": 49.5938, "school_lng": 6.1338,
-                      "appeal": "edge of city, well-connected"},
+                      "lat": 49.5728, "lng": 6.1542,
+                      "appeal": "south of the city, expat-friendly"},
+    "Leudelange":    {"foreign_pct": 45, "has_train": False, "primary": False,
+                      "lat": 49.5667, "lng": 6.0883,
+                      "appeal": "near Cloche d'Or business district, quiet, quick to the city"},
 }
 
 PRIMARY_COMMUNES: tuple[str, ...] = tuple(
@@ -100,41 +96,30 @@ PRIMARY_COMMUNES: tuple[str, ...] = tuple(
 )
 
 
-# --- Hard filters (rentals — primary use case) ----------------------------------
-HARD_FILTERS_RENT: dict = {
-    "min_bedrooms": 4,
-    "min_surface_m2": 100,
-    "min_rent_total_eur": 2500,
-    "max_rent_total_eur": 4500,  # inclusive of charges
-    "max_drive_time_rush_min": 30,  # RUSH HOUR, Tuesday 08:00
-    "max_pt_time_rush_min": 60,  # RUSH HOUR, Tuesday 08:00
+# --- Hard filters (apply to all three listing categories) ------------------------
+# Deliberately simple: rooms, surface, and commune. Price and commute are NOT
+# knockouts — we store every matching property and let scoring rank them, with
+# commute as a (soft) indicator.
+HARD_FILTERS: dict = {
+    "min_rooms": 3,       # pièces if the portal reports them, else bedrooms
+    "max_rooms": 8,
+    "min_surface_m2": 80,
     "communes": list(TARGET_COMMUNES),
 }
 
-# --- Hard filters (sale — secondary, lower priority initially) -------------------
-HARD_FILTERS_BUY: dict = {
-    "min_bedrooms": 4,
-    "min_surface_m2": 100,
-    "min_price_eur": 800_000,
-    "max_price_eur": 1_400_000,
-    "max_drive_time_rush_min": 30,
-    "max_pt_time_rush_min": 60,
-    "communes": list(TARGET_COMMUNES),
-}
+# Furnished / long-term rent / buy currently share the same hard criteria.
+HARD_FILTERS_RENT = HARD_FILTERS
+HARD_FILTERS_BUY = HARD_FILTERS
 
-# --- Soft scoring weights (post-filter ranking) ---------------------------------
+# --- Soft scoring weights (post-filter ranking; must sum to 100) -----------------
 SCORING_WEIGHTS: dict = {
-    "drive_time": 20,
-    "pt_time": 15,
-    "foreign_pct": 10,
-    "school_walking_distance": 15,
-    "creche_walking_distance": 5,
-    "park_walking_distance": 5,
+    "drive_time": 25,        # approximate car commute to the office (indicator)
+    "pt_time": 20,           # approximate public-transport commute (indicator)
+    "foreign_pct": 15,       # expat-friendliness of the commune
     "energy_class": 10,
-    "has_garage": 5,
-    "has_garden": 5,
-    "ground_floor_with_garden": 3,
-    "llm_quality_score": 7,
+    "has_garage": 8,
+    "has_garden": 8,
+    "llm_quality_score": 14,  # description quality (heuristic flags/highlights)
 }
 
 

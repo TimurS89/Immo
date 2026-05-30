@@ -42,7 +42,7 @@ def test_walk_increases_with_distance():
 
 
 def test_commune_estimates():
-    assert estimate_for_commune("Sandweiler")["drive_min"] < estimate_for_commune("Mamer")["drive_min"]
+    assert estimate_for_commune("Luxembourg")["drive_min"] < estimate_for_commune("Mamer")["drive_min"]
     # Every target commune is within the 60-min PT cap under the crude model.
     for commune in TARGET_COMMUNES:
         est = estimate_for_commune(commune)
@@ -81,12 +81,11 @@ def test_populate_commute_times(lux_session):
 
     s = lux_session.query(Listing).filter_by(commune="Strassen").one()
     assert s.drive_time_rush_min and s.pt_time_rush_min
-    assert s.walk_to_school_min is None  # no own coords -> not computed
-    assert s.walk_to_creche_min is None and s.walk_to_park_min is None
+    assert s.walk_to_school_min is None  # walk distances are no longer computed
 
     w = lux_session.query(Listing).filter_by(commune="Walferdange").one()
     assert w.drive_time_rush_min and w.pt_time_rush_min
-    assert w.walk_to_school_min is not None and w.walk_to_school_min >= 0
+    assert w.walk_to_school_min is None
 
     off = lux_session.query(Listing).filter_by(commune="Esch-sur-Alzette").one()
     assert off.drive_time_rush_min is None
@@ -96,5 +95,5 @@ def test_populate_commute_times(lux_session):
 
 
 def test_commune_anchor():
-    assert commune_anchor("Luxembourg") == (49.6117, 6.1250)
+    assert commune_anchor("Luxembourg") == (49.6116, 6.1319)
     assert commune_anchor("Nowhere") is None

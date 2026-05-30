@@ -29,21 +29,17 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
-from config.luxembourg import (
-    HARD_FILTERS_BUY,
-    HARD_FILTERS_RENT,
-    SCORING_WEIGHTS,
-    TARGET_COMMUNES,
-)
+from config.luxembourg import HARD_FILTERS, SCORING_WEIGHTS, TARGET_COMMUNES
 from src.lux_monitor.models import ENERGY_CLASSES, Listing
 
 logger = logging.getLogger(__name__)
 
 NEUTRAL = 0.5  # subscore for missing/unknown inputs
 
-# Walk-time normalization band (minutes): <=BEST -> 1.0, >=WORST -> 0.0.
-WALK_BEST_MIN = 5
-WALK_WORST_MIN = 20
+# Commute normalization (minutes): 0 -> 1.0, >= MAX -> 0.0. The commute is an
+# indicator (not a hard filter), so these are just the good/bad anchors.
+DRIVE_NORM_MAX = 45
+PT_NORM_MAX = 75
 
 # foreign_pct normalization band (%): <=LO -> 0.0, >=HI -> 1.0.
 FOREIGN_LO, FOREIGN_HI = 30, 65
@@ -53,13 +49,13 @@ def _clip01(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
-def filters_for(listing_type: str) -> dict:
-    """The hard-filter dict for a listing type (buy -> BUY, else RENT)."""
-    return HARD_FILTERS_BUY if listing_type == "buy" else HARD_FILTERS_RENT
+def filters_for(listing_type: str | None = None) -> dict:
+    """The hard-filter dict (furnished / rent / buy share the same criteria)."""
+    return HARD_FILTERS
 
 
 # --------------------------------------------------------------------------- #
-# Stage 1: hard filter
+# Stage 1: hard filter — commune, room count, surface (no price/commute caps)
 # --------------------------------------------------------------------------- #
 @dataclass
 class FilterResult:
@@ -67,47 +63,25 @@ class FilterResult:
     reasons: list[str] = field(default_factory=list)
 
 
-def _price_value(listing: Listing) -> float | None:
-    if listing.listing_type == "buy":
-        return listing.price_eur
-    # Rent is compared on total (rent + charges); fall back to base rent.
-    return listing.rent_total_eur if listing.rent_total_eur is not None else listing.rent_eur
+def _effective_rooms(listing: Listing) -> int:
+    """Total rooms (pièces) when the portal reports them, else bedrooms."""
+    return listing.rooms_total if listing.rooms_total else listing.bedrooms
 
 
 def passes_hard_filter(listing: Listing, filters: dict | None = None) -> FilterResult:
-    """Apply the non-negotiable knockouts; collect reasons for any failure."""
-    f = filters or filters_for(listing.listing_type)
+    """Apply the (deliberately small) knockouts; collect reasons for any failure."""
+    f = filters or HARD_FILTERS
     reasons: list[str] = []
 
     if listing.commune not in f["communes"]:
         reasons.append(f"commune {listing.commune!r} not in target set")
-    if listing.bedrooms < f["min_bedrooms"]:
-        reasons.append(f"bedrooms {listing.bedrooms} < {f['min_bedrooms']}")
+
+    rooms = _effective_rooms(listing)
+    if rooms is None or not (f["min_rooms"] <= rooms <= f["max_rooms"]):
+        reasons.append(f"rooms {rooms} outside [{f['min_rooms']}, {f['max_rooms']}]")
+
     if listing.surface_m2 < f["min_surface_m2"]:
-        reasons.append(f"surface {listing.surface_m2:.0f} < {f['min_surface_m2']}")
-
-    value = _price_value(listing)
-    if listing.listing_type == "buy":
-        lo, hi, label = f["min_price_eur"], f["max_price_eur"], "price"
-    else:
-        lo, hi, label = f["min_rent_total_eur"], f["max_rent_total_eur"], "rent_total"
-    if value is None:
-        reasons.append(f"{label} unknown")
-    elif not (lo <= value <= hi):
-        reasons.append(f"{label} {value:.0f} outside [{lo}, {hi}]")
-
-    # Commute: OK if EITHER mode is within its own cap.
-    drive, pt = listing.drive_time_rush_min, listing.pt_time_rush_min
-    drive_ok = drive is not None and drive <= f["max_drive_time_rush_min"]
-    pt_ok = pt is not None and pt <= f["max_pt_time_rush_min"]
-    if not (drive_ok or pt_ok):
-        if drive is None and pt is None:
-            reasons.append("commute not computed")
-        else:
-            reasons.append(
-                f"commute too long (drive {drive} > {f['max_drive_time_rush_min']} "
-                f"and PT {pt} > {f['max_pt_time_rush_min']})"
-            )
+        reasons.append(f"surface {listing.surface_m2:.0f} m² < {f['min_surface_m2']}")
 
     return FilterResult(passed=not reasons, reasons=reasons)
 
@@ -125,12 +99,6 @@ def _energy_subscore(energy_class: str | None) -> float | None:
     return 1.0 - idx / (len(ENERGY_CLASSES) - 1)
 
 
-def _walk_subscore(minutes: int | None) -> float | None:
-    if minutes is None:
-        return None
-    return _clip01((WALK_WORST_MIN - minutes) / (WALK_WORST_MIN - WALK_BEST_MIN))
-
-
 def _lower_is_better(value: int | None, cap: int) -> float | None:
     if value is None:
         return None
@@ -145,36 +113,22 @@ class ScoreBreakdown:
 
 def score_listing(listing: Listing, filters: dict | None = None) -> ScoreBreakdown:
     """Weighted 0–100 score with a per-subscore breakdown (pure; no DB write)."""
-    f = filters or filters_for(listing.listing_type)
     commune_meta = TARGET_COMMUNES.get(listing.commune, {})
     foreign_pct = commune_meta.get("foreign_pct")
     llm = listing.llm_quality_score
 
     # name -> (displayed raw value, normalized subscore 0..1 or None=unknown)
     raw: dict[str, tuple[object, float | None]] = {
-        "drive_time": (
-            listing.drive_time_rush_min,
-            _lower_is_better(listing.drive_time_rush_min, f["max_drive_time_rush_min"]),
-        ),
-        "pt_time": (
-            listing.pt_time_rush_min,
-            _lower_is_better(listing.pt_time_rush_min, f["max_pt_time_rush_min"]),
-        ),
+        "drive_time": (listing.drive_time_rush_min, _lower_is_better(listing.drive_time_rush_min, DRIVE_NORM_MAX)),
+        "pt_time": (listing.pt_time_rush_min, _lower_is_better(listing.pt_time_rush_min, PT_NORM_MAX)),
         "foreign_pct": (
             foreign_pct,
             None if foreign_pct is None
             else _clip01((foreign_pct - FOREIGN_LO) / (FOREIGN_HI - FOREIGN_LO)),
         ),
-        "school_walking_distance": (listing.walk_to_school_min, _walk_subscore(listing.walk_to_school_min)),
-        "creche_walking_distance": (listing.walk_to_creche_min, _walk_subscore(listing.walk_to_creche_min)),
-        "park_walking_distance": (listing.walk_to_park_min, _walk_subscore(listing.walk_to_park_min)),
         "energy_class": (listing.energy_class, _energy_subscore(listing.energy_class)),
         "has_garage": (listing.has_garage, 1.0 if listing.has_garage else 0.0),
         "has_garden": (listing.has_garden, 1.0 if listing.has_garden else 0.0),
-        "ground_floor_with_garden": (
-            (listing.floor, listing.has_garden),
-            1.0 if (listing.floor == 0 and listing.has_garden) else 0.0,
-        ),
         "llm_quality_score": (llm, None if llm is None else _clip01(llm / 100)),
     }
 

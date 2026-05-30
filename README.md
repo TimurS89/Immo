@@ -35,8 +35,9 @@ replace the daily chore of refreshing property sites by hand.
 
 Every run, the tool:
 
-1. **Scrapes** the configured Luxembourg portals for rentals and sales in your
-   target communes.
+1. **Scrapes** the configured Luxembourg portals for three categories — **furnished
+   rentals, long‑term rentals (flats + houses), and properties to buy** — in your
+   target communes. (It stores the advert link, not photos.)
 2. **Stores** each listing in a local SQLite database, tracking price changes,
    when it first/last appeared, and when it disappears (a useful "rented/sold"
    signal).
@@ -106,14 +107,13 @@ until/unless they're worth the extra effort (see [Outstanding](#whats-outstandin
 
 ### The two-stage selection
 
-1. **Hard filter** (non‑negotiable knockouts) — commune in the target set,
-   bedrooms ≥ 4, surface ≥ 100 m², price/rent in band, and the commute within
-   limits (acceptable if **either** driving ≤ 30 min **or** public transport ≤ 60
-   min at rush hour).
-2. **Soft score** (0–100) — a weighted blend of: drive time (20), PT time (15),
-   school walk (15), foreign‑resident % of the commune (10), energy class (10),
-   crèche walk (5), park walk (5), garage (5), garden (5), description quality (7),
-   ground‑floor‑with‑garden (3). Missing data scores *neutral*, never punishing.
+1. **Hard filter** (deliberately small) — commune in the target set, **3–8 rooms**
+   (pièces if the portal reports them, else bedrooms), and **surface ≥ 80 m²**.
+   That's it: price and commute are **not** knockouts — every matching property is
+   stored, and commute is used as a soft indicator instead.
+2. **Soft score** (0–100) — a weighted blend of: drive time (25), PT time (20),
+   foreign‑resident % of the commune (15), description quality (14), energy class
+   (10), garage (8), garden (8). Missing data scores *neutral*, never punishing.
 
 ---
 
@@ -188,14 +188,14 @@ a scraper if a site changes its markup).
 The non‑negotiables live in one file — **`config/luxembourg.py`** — as plain Python
 constants (no YAML to wrangle):
 
-- **`TARGET_COMMUNES`** — the 8 communes searched/scored: Luxembourg, Walferdange,
-  Bertrange, Strassen, Mamer, Hesperange, Sandweiler, Howald — each with its
-  foreign‑resident %, train flag, and school coordinates.
-- **`HARD_FILTERS_RENT` / `HARD_FILTERS_BUY`** — bedrooms, surface, price/rent band,
-  and the 30‑min‑drive / 60‑min‑PT commute caps.
-- **`SCORING_WEIGHTS`** — the soft‑score weights (must sum to 100).
-- **`DWS_OFFICE`** — the commute destination (Kirchberg) and the rush‑hour rule
-  (Tuesday 08:00).
+- **`TARGET_COMMUNES`** — the 7 communes searched/scored: Luxembourg, Strassen,
+  Bertrange, Mamer, Walferdange, Hesperange, Leudelange — each with its
+  foreign‑resident %, train flag, and centre coordinates (for the commute estimate).
+- **`HARD_FILTERS`** — the (small) knockouts: **3–8 rooms, surface ≥ 80 m², commune**.
+  No price or commute caps — everything matching is stored.
+- **`SCORING_WEIGHTS`** — the soft‑score weights (must sum to 100): commute
+  (drive + PT), foreign %, description quality, energy, garage, garden.
+- **`DWS_OFFICE`** — the commute destination (Kirchberg).
 
 Tuning anything here, then `python -m src.lux_monitor run --no-scrape`, re‑ranks
 your existing data instantly. Estimator constants (assumed speeds, rush‑hour
@@ -252,8 +252,8 @@ SETUP.md / RUNBOOK.md / ARCHITECTURE.md   # deeper docs
   protection). Supporting them would need real browser automation (Playwright +
   stealth) and may still hit Terms‑of‑Service limits. Parked for now; **athome
   alone covers most of the market.**
-- **Notifications** — there's currently no push when a great new listing appears;
-  you check the shortlist or the cron log. Email (Gmail) or Telegram could be added.
+- **Notifications** — a **once‑a‑day Gmail digest** is the next thing to build;
+  until then you check the shortlist or the cron log.
 - **Web dashboard** — browsing/filtering/trends in a UI (a Streamlit app) is
   scaffolded in the legacy stack but not wired to `lux_monitor`.
 - **Buy‑side & richer detail** — sales work but are less exercised than rentals;

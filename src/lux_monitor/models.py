@@ -39,7 +39,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 # --- Allowed values (enforced in the Pydantic layer, see schemas.py) ---
 PORTALS: tuple[str, ...] = ("athome", "immotop", "wortimmo", "nexvia")
-LISTING_TYPES: tuple[str, ...] = ("rent", "buy")
+LISTING_TYPES: tuple[str, ...] = ("furnished", "rent", "buy")
 DESCRIPTION_LANGS: tuple[str, ...] = ("fr", "de", "en")
 ENERGY_CLASSES: tuple[str, ...] = tuple("ABCDEFGHI")  # Luxembourg passeport énergétique
 

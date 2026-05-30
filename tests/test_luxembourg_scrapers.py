@@ -40,9 +40,11 @@ def test_athome_parse():
     assert a.description_lang == "fr"
     assert a.url == "https://www.athome.lu/rent/house/strassen/id-1001.html"
     assert a.to_orm().rent_total_eur == 3500  # athome SERP has no charges
+    assert a.photos_urls == []  # we intentionally don't store photos
 
     b = _by_id(listings, "1002")  # commune from address.district, not cityName
     assert b.commune == "Luxembourg" and b.postcode == "2551"
+    assert b.listing_type == "furnished"  # hasFurnished=1 -> furnished category
     assert b.bedrooms == 4 and b.surface_m2 == 120 and b.rent_eur == 2800
     assert b.floor == 2 and b.has_elevator is True
     assert b.has_garden is False and b.has_garage is False and b.parking_spaces == 1

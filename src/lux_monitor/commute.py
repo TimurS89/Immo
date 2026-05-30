@@ -66,11 +66,11 @@ def estimate_walk_min(lat1: float, lng1: float, lat2: float, lng2: float) -> int
 
 
 def commune_anchor(commune: str | None) -> tuple[float, float] | None:
-    """Representative (lat, lng) for a commune (its school coordinate)."""
+    """Representative (lat, lng) for a commune (its centre point)."""
     meta = TARGET_COMMUNES.get(commune or "")
     if not meta:
         return None
-    return (meta["school_lat"], meta["school_lng"])
+    return (meta["lat"], meta["lng"])
 
 
 def estimate_for_commune(commune: str) -> dict | None:
@@ -108,14 +108,6 @@ def populate_commute_times(session: Session, *, only_missing: bool = True) -> in
         olat, olng = origin
         listing.drive_time_rush_min = estimate_drive_min(olat, olng)
         listing.pt_time_rush_min = estimate_pt_min(olat, olng)
-
-        # Walk-to-school only meaningful with the listing's own coordinate.
-        if listing.lat is not None and listing.lng is not None:
-            anchor = commune_anchor(listing.commune)
-            if anchor is not None:
-                listing.walk_to_school_min = estimate_walk_min(
-                    listing.lat, listing.lng, anchor[0], anchor[1]
-                )
         updated += 1
 
     session.commit()
