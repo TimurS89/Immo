@@ -72,6 +72,10 @@ pytest -q                   # expect: all green
 
 ## 7. Luxembourg scrapers (live run — workstation only)
 
+> **Going live?** Follow **`RUNBOOK.md`** — it walks through validating the
+> scraper selectors against real HTML, a supervised first run, tuning, and cron
+> scheduling, in order. This section is the quick reference.
+
 The LU scrapers (`src/scrapers/luxembourg/`) target athome.lu, immotop.lu and
 wortimmo.lu and write to `lux_monitor`. Their **parsing logic is unit-tested
 against synthetic fixtures** in `tests/fixtures/luxembourg/`; the SERP selectors
