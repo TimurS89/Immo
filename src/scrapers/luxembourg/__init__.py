@@ -49,7 +49,7 @@ async def run_luxembourg(
     from src.lux_monitor.analysis import apply_analysis
     from src.lux_monitor.commute import populate_commute_times
     from src.lux_monitor.dedup import mark_duplicates
-    from src.lux_monitor.scoring import apply_scores
+    from src.lux_monitor.scoring import apply_scores, passes_hard_filter
 
     lu = config.search_areas.get("LU")
     enabled = lu.enabled_portals() if (lu and lu.enabled) else list(LU_SCRAPERS)
@@ -64,6 +64,9 @@ async def run_luxembourg(
             scraper = scraper_cls(config)
             try:
                 listings = await scraper.scrape()
+                # Persist only listings that align with the hard filter (commune /
+                # rooms / surface) — portal searches return far more than we want.
+                listings = [lc for lc in listings if passes_hard_filter(lc).passed]
                 counts = scraper.save_listings(session, listings)
             except Exception as exc:
                 # A single portal failing (DNS, network, parse, site change) must

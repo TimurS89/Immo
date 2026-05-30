@@ -66,6 +66,9 @@ if df.empty:
 
 # --- filters (sidebar) ---
 st.sidebar.header("Filters")
+if st.sidebar.button("🔄 Reload data"):  # cache_data persists across refreshes
+    st.cache_data.clear()
+    st.rerun()
 scored_only = st.sidebar.toggle("Only matches (scored)", value=True)
 all_types = sorted(df["type"].dropna().unique())
 all_communes = sorted(df["commune"].dropna().unique())

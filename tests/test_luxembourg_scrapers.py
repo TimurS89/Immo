@@ -8,6 +8,7 @@ import pytest
 
 from src.config import AppConfig
 from src.lux_monitor.models import Listing, PriceHistoryEntry
+from src.lux_monitor.schemas import ListingCreate
 from src.scrapers.luxembourg.athome import AtHomeScraper
 from src.scrapers.luxembourg.immotop import ImmotopScraper
 from src.scrapers.luxembourg.wortimmo import WortimmoScraper
@@ -137,3 +138,38 @@ def test_run_luxembourg_survives_a_failing_scraper(lux_session, monkeypatch):
 
     assert totals.get("scraper_errors", 0) >= 1  # failures caught, not raised
     assert "scored" in totals and "analyzed" in totals  # offline stages still ran
+
+
+def test_run_luxembourg_persists_only_aligning(lux_session, monkeypatch):
+    """Only listings passing the hard filter (commune/rooms/surface) are saved."""
+    import asyncio
+
+    from src.config import load_config
+    from src.scrapers.luxembourg import LU_SCRAPERS, run_luxembourg
+
+    def lc(commune, bedrooms, surface, ext):
+        return ListingCreate(
+            portal="athome", portal_listing_id=ext, url="https://athome.lu/x",
+            commune=commune, listing_type="rent", bedrooms=bedrooms, surface_m2=surface,
+            rent_eur=2500, description_raw="a long enough description here",
+            description_lang="fr", title="t",
+        )
+
+    good = lc("Strassen", 4, 120, "g1")
+    off_target = lc("Differdange", 4, 120, "o1")   # commune not in target set
+    too_small = lc("Strassen", 4, 60, "s1")        # surface < 80 m²
+
+    async def fake_athome(self):
+        return [good, off_target, too_small]
+
+    async def empty(self):
+        return []
+
+    monkeypatch.setattr(LU_SCRAPERS["athome"], "scrape", fake_athome)
+    monkeypatch.setattr(LU_SCRAPERS["immotop"], "scrape", empty)
+    monkeypatch.setattr(LU_SCRAPERS["wortimmo"], "scrape", empty)
+
+    asyncio.run(run_luxembourg(load_config(), lux_session))
+
+    saved = lux_session.query(Listing).all()
+    assert {l.portal_listing_id for l in saved} == {"g1"}  # off-target + too-small dropped
