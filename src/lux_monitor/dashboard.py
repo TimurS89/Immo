@@ -13,6 +13,8 @@ click through to the adverts. Refresh the page after a new scrape run.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pandas as pd
 import streamlit as st
 
@@ -57,6 +59,26 @@ def load_rows() -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
+@st.cache_data(ttl=120)
+def load_price_drops() -> pd.DataFrame:
+    from src.lux_monitor.digest import price_drops
+
+    with session_scope(get_engine()) as session:
+        rows = [
+            {
+                "commune": d.listing.commune,
+                "type": d.listing.listing_type,
+                "old €": d.old_price,
+                "new €": d.new_price,
+                "Δ%": d.pct,
+                "score": d.listing.score_total,
+                "link": d.listing.url,
+            }
+            for d in price_drops(session, days=30)
+        ]
+    return pd.DataFrame(rows)
+
+
 df = load_rows()
 st.title("🏠 Luxembourg Property Monitor")
 
@@ -77,6 +99,9 @@ communes = st.sidebar.multiselect("Commune", all_communes, default=all_communes)
 min_score = st.sidebar.slider("Min score", 0, 100, 0)
 sort_by = st.sidebar.selectbox("Sort by", ["score", "€", "first seen", "drive", "PT", "m²"])
 ascending = st.sidebar.toggle("Ascending", value=False)
+st.sidebar.divider()
+new_only = st.sidebar.toggle("🆕 New only", value=False)
+new_days = st.sidebar.slider("…first seen within (days)", 1, 30, 7)
 
 view = df.copy()
 if scored_only:
@@ -84,6 +109,9 @@ if scored_only:
 view = view[view["type"].isin(types) & view["commune"].isin(communes)]
 if min_score:
     view = view[view["score"].fillna(0) >= min_score]
+if new_only:
+    cutoff = (date.today() - timedelta(days=new_days)).isoformat()
+    view = view[view["first seen"].fillna("") >= cutoff]
 view = view.sort_values(by=sort_by, ascending=ascending, na_position="last")
 
 # --- KPIs ---
@@ -109,3 +137,22 @@ st.caption(
     "Source: data/monitor.db (read-only) · refresh after a new run · "
     "a blank score means the listing was stored but falls outside the hard filter."
 )
+
+st.subheader("📉 Recent price drops (last 30 days)")
+drops_df = load_price_drops()
+if drops_df.empty:
+    st.caption("No price drops recorded yet.")
+else:
+    st.dataframe(
+        drops_df,
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "link": st.column_config.LinkColumn("link", display_text="open ↗"),
+            "old €": st.column_config.NumberColumn("old €", format="%d"),
+            "new €": st.column_config.NumberColumn("new €", format="%d"),
+            "Δ%": st.column_config.NumberColumn("Δ%", format="%.1f%%"),
+            "score": st.column_config.NumberColumn("score", format="%.1f"),
+        },
+    )
+
