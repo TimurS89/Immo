@@ -93,6 +93,27 @@ def cmd_initdb(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    import importlib.util
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    if importlib.util.find_spec("streamlit") is None:
+        print("Streamlit isn't installed. Run:  pip install streamlit")
+        return 1
+    if args.db:
+        os.environ["LUX_MONITOR_DB_URL"] = f"sqlite:///{args.db}"
+    app = Path(__file__).with_name("dashboard.py")
+    print(f"Starting dashboard on http://{args.host}:{args.port} "
+          f"(open it on your phone via this machine's LAN IP). Ctrl-C to stop.")
+    return subprocess.call([
+        sys.executable, "-m", "streamlit", "run", str(app),
+        "--server.address", args.host, "--server.port", str(args.port),
+    ])
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--db", help="SQLite path (default data/monitor.db or $LUX_MONITOR_DB_URL)")
@@ -123,6 +144,13 @@ def build_parser() -> argparse.ArgumentParser:
     initdb = sub.add_parser("init-db", parents=[common],
                             help="create tables (dev; prefer `alembic upgrade head`)")
     initdb.set_defaults(func=cmd_initdb)
+
+    dash = sub.add_parser("dashboard", parents=[common],
+                          help="launch the browser dashboard (needs `pip install streamlit`)")
+    dash.add_argument("--host", default="0.0.0.0",
+                      help="bind address (default 0.0.0.0 so a phone on the same Wi-Fi can reach it)")
+    dash.add_argument("--port", type=int, default=8501)
+    dash.set_defaults(func=cmd_dashboard)
     return parser
 
 
