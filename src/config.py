@@ -1,4 +1,14 @@
-"""Configuration loader for Immo property search."""
+"""Configuration loader for Immo property search.
+
+Country-keyed structure: ``AppConfig.search_areas`` maps a country code
+("DE", "FR", "LU", ...) to a :class:`CountryConfig`. Each ``CountryConfig``
+carries its own ``enabled`` flag, ``currency``, ``locale``/``timezone`` (used by
+the browser), search ``areas``, and the ``portals`` (scrapers) for that country.
+
+Adding a country/portal is purely a config change — no consumer code edits, and
+no DB enum to migrate (see ``src/database/models.py``). This map is the dynamic
+"source registry" that replaces the old hardcoded ``source_enum``/``country_enum``.
+"""
 
 from __future__ import annotations
 
@@ -56,7 +66,9 @@ class SearchArea(BaseModel):
     city: str | None = None
     postal_codes: list[str] = Field(default_factory=list)
     radius_km: int = 0
-    departments: list[str] = Field(default_factory=list)
+    departments: list[str] = Field(default_factory=list)  # FR
+    # Generic region identifiers (cantons/communes/zones) for other markets (LU).
+    regions: list[str] = Field(default_factory=list)
 
 
 class Filters(BaseModel):
@@ -67,8 +79,32 @@ class Filters(BaseModel):
     property_types: list[str] = Field(default_factory=lambda: ["apartment", "house", "land"])
 
 
+class PortalConfig(BaseModel):
+    """A single scraper/source within a country."""
+
+    name: str
+    enabled: bool = True
+    base_url: str | None = None
+
+
+class CountryConfig(BaseModel):
+    """All settings scoped to one country code."""
+
+    enabled: bool = False
+    currency: str = "EUR"
+    locale: str = "en-US"
+    timezone: str = "UTC"
+    regions: list[str] = Field(default_factory=list)
+    areas: list[SearchArea] = Field(default_factory=list)
+    portals: list[PortalConfig] = Field(default_factory=list)
+
+    def enabled_portals(self) -> list[str]:
+        """Names of enabled portals (only meaningful when the country is enabled)."""
+        return [p.name for p in self.portals if p.enabled]
+
+
 class ScrapersConfig(BaseModel):
-    enabled: dict[str, list[str]] = Field(default_factory=dict)
+    # NOTE: per-country/source enablement now lives in CountryConfig.portals.
     request_delay_seconds: list[int] = Field(default_factory=lambda: [3, 8])
     max_pages_per_source: int = 20
     headless: bool = True
@@ -110,16 +146,42 @@ class LoggingConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    search_germany: list[SearchArea] = Field(default_factory=list)
-    search_france: list[SearchArea] = Field(default_factory=list)
+    # Country-keyed registry of search scope + portals.
+    search_areas: dict[str, CountryConfig] = Field(default_factory=dict)
     filters_buy: Filters = Field(default_factory=Filters)
-    filters_rent: Filters = Field(default_factory=lambda: Filters(max_price=2500, property_types=["apartment", "house"]))
+    filters_rent: Filters = Field(
+        default_factory=lambda: Filters(max_price=2500, property_types=["apartment", "house"])
+    )
     scrapers: ScrapersConfig = Field(default_factory=ScrapersConfig)
     reports: ReportsConfig = Field(default_factory=ReportsConfig)
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+
+    def country(self, code: str) -> CountryConfig | None:
+        return self.search_areas.get(code)
+
+    def enabled_countries(self) -> list[str]:
+        return [code for code, cc in self.search_areas.items() if cc.enabled]
+
+
+def _parse_country_config(raw: dict[str, Any]) -> CountryConfig:
+    portals_raw = raw.get("portals", [])
+    portals = [
+        p if isinstance(p, PortalConfig)
+        else (PortalConfig(**p) if isinstance(p, dict) else PortalConfig(name=str(p)))
+        for p in portals_raw
+    ]
+    return CountryConfig(
+        enabled=raw.get("enabled", False),
+        currency=raw.get("currency", "EUR"),
+        locale=raw.get("locale", "en-US"),
+        timezone=raw.get("timezone", "UTC"),
+        regions=raw.get("regions", []),
+        areas=[SearchArea(**a) for a in raw.get("areas", [])],
+        portals=portals,
+    )
 
 
 def load_config(config_path: str | Path | None = None) -> AppConfig:
@@ -140,12 +202,31 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
 
     raw = _resolve_dict(raw)
 
-    search = raw.get("search", {})
+    search_areas = {
+        code: _parse_country_config(cc or {})
+        for code, cc in (raw.get("search_areas", {}) or {}).items()
+    }
+
+    # Always register Luxembourg from the canonical constants (config/luxembourg.py)
+    # unless the YAML explicitly defines an "LU" entry (which then takes precedence).
+    if "LU" not in search_areas:
+        import sys
+        if str(PROJECT_ROOT) not in sys.path:
+            sys.path.insert(0, str(PROJECT_ROOT))
+        try:
+            from config.luxembourg import lu_country_config
+            search_areas["LU"] = lu_country_config()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not load Luxembourg config from config/luxembourg.py",
+                exc_info=True,
+            )
+
     filters = raw.get("filters", {})
 
     return AppConfig(
-        search_germany=[SearchArea(**a) for a in search.get("germany", [])],
-        search_france=[SearchArea(**a) for a in search.get("france", [])],
+        search_areas=search_areas,
         filters_buy=Filters(**filters["buy"]) if "buy" in filters else Filters(),
         filters_rent=Filters(**filters["rent"]) if "rent" in filters else Filters(max_price=2500),
         scrapers=ScrapersConfig(**raw["scrapers"]) if "scrapers" in raw else ScrapersConfig(),

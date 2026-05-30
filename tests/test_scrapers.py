@@ -2,7 +2,14 @@
 
 import pytest
 from unittest.mock import MagicMock
-from src.config import AppConfig, Filters, SearchArea, ScrapersConfig
+from src.config import (
+    AppConfig,
+    CountryConfig,
+    Filters,
+    PortalConfig,
+    ScrapersConfig,
+    SearchArea,
+)
 from src.scrapers.base import BaseScraper, PropertyData
 
 
@@ -30,8 +37,22 @@ class DummyScraper(BaseScraper):
 
 def make_config():
     return AppConfig(
-        search_germany=[SearchArea(name="Baden-Baden", city="Baden-Baden", postal_codes=["76530"])],
-        search_france=[SearchArea(name="Alsace", departments=["67", "68"])],
+        search_areas={
+            "DE": CountryConfig(
+                enabled=True,
+                locale="de-DE",
+                timezone="Europe/Berlin",
+                areas=[SearchArea(name="Baden-Baden", city="Baden-Baden", postal_codes=["76530"])],
+                portals=[PortalConfig(name="immoscout24"), PortalConfig(name="immowelt")],
+            ),
+            "FR": CountryConfig(
+                enabled=False,  # disabled by default
+                locale="fr-FR",
+                timezone="Europe/Paris",
+                areas=[SearchArea(name="Alsace", departments=["67", "68"])],
+                portals=[PortalConfig(name="leboncoin")],
+            ),
+        },
         filters_buy=Filters(max_price=1000000, min_rooms=3, min_area_sqm=50),
         filters_rent=Filters(max_price=2500, min_rooms=3, min_area_sqm=50),
         scrapers=ScrapersConfig(request_delay_seconds=[0, 0]),

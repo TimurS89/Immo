@@ -1,0 +1,65 @@
+<!-- SYNTHETIC representative atHome.lu SERP (rent). Selectors must be re-validated
+     against live markup on the workstation before first real run. -->
+<html><body>
+<section class="results">
+
+  <!-- A: chambres + pièces explicit, with charges, energy + thermal, garden+garage -->
+  <article class="property-card" data-id="6543210">
+    <a class="property-card__link" href="/fr/louer/appartement/walferdange/id-6543210.html">link</a>
+    <h2 class="property-card__title">Appartement à louer - Walferdange</h2>
+    <div class="property-card__price">2.500 €<span class="property-card__charges">+ 250 € charges</span></div>
+    <ul class="property-card__chars">
+      <li class="chambres">4 chambres</li>
+      <li class="pieces">5 pièces</li>
+      <li class="surface">130 m²</li>
+      <li class="etage">1er étage</li>
+    </ul>
+    <div class="property-card__location">Walferdange (L-7220)</div>
+    <span class="property-card__energy" data-energy="B" data-thermal="C"></span>
+    <p class="property-card__desc">Bel appartement avec jardin et garage, proche forêt.</p>
+    <img class="property-card__img" src="https://img.athome.lu/6543210-1.jpg"/>
+  </article>
+
+  <!-- B: pièces only (bedrooms must be inferred = 5 - 1 = 4), no charges, RDC, terrasse -->
+  <article class="property-card" data-id="6543211">
+    <a class="property-card__link" href="/fr/louer/maison/strassen/id-6543211.html">link</a>
+    <h2 class="property-card__title">Maison à louer à Strassen</h2>
+    <div class="property-card__price">3.100 €</div>
+    <ul class="property-card__chars">
+      <li class="pieces">5 pièces</li>
+      <li class="surface">140 m²</li>
+      <li class="etage">rez-de-chaussée</li>
+    </ul>
+    <div class="property-card__location">Strassen (L-8011)</div>
+    <span class="property-card__energy" data-energy="C"></span>
+    <p class="property-card__desc">Belle maison avec terrasse.</p>
+  </article>
+
+  <!-- C: missing surface -> ListingCreate invalid -> must be skipped -->
+  <article class="property-card" data-id="6543212">
+    <a class="property-card__link" href="/fr/louer/appartement/howald/id-6543212.html">link</a>
+    <h2 class="property-card__title">Studio à louer à Howald</h2>
+    <div class="property-card__price">1.900 €</div>
+    <ul class="property-card__chars">
+      <li class="chambres">2 chambres</li>
+    </ul>
+    <div class="property-card__location">Howald</div>
+  </article>
+
+  <!-- D: chambres explicit, charges, 2e étage, garage -->
+  <article class="property-card" data-id="6543213">
+    <a class="property-card__link" href="/fr/louer/appartement/mamer/id-6543213.html">link</a>
+    <h2 class="property-card__title">Appartement à louer à Mamer</h2>
+    <div class="property-card__price">2.800 €<span class="property-card__charges">+ 200 €</span></div>
+    <ul class="property-card__chars">
+      <li class="chambres">4 chambres</li>
+      <li class="surface">150 m²</li>
+      <li class="etage">2e étage</li>
+    </ul>
+    <div class="property-card__location">Mamer (L-8245)</div>
+    <span class="property-card__energy" data-energy="A" data-thermal="B"></span>
+    <p class="property-card__desc">Spacieux appartement avec garage et ascenseur.</p>
+  </article>
+
+</section>
+</body></html>

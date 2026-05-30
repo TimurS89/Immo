@@ -29,10 +29,10 @@ VIEWPORTS = [
     {"width": 1440, "height": 900},
 ]
 
-LOCALES = {
-    "DE": {"locale": "de-DE", "timezone": "Europe/Berlin"},
-    "FR": {"locale": "fr-FR", "timezone": "Europe/Paris"},
-}
+# Locale/timezone are sourced per-country from config (CountryConfig), not a
+# hardcoded country table. These are only fallbacks for unknown countries.
+DEFAULT_LOCALE = "en-US"
+DEFAULT_TIMEZONE = "UTC"
 
 
 class BrowserManager:
@@ -63,9 +63,15 @@ class BrowserManager:
             await self._playwright.stop()
         logger.info("Browser closed")
 
-    async def new_context(self, country: str = "DE") -> BrowserContext:
-        """Create a new browser context with stealth settings."""
-        locale_info = LOCALES.get(country, LOCALES["DE"])
+    async def new_context(self, country: str = "") -> BrowserContext:
+        """Create a new browser context with stealth settings.
+
+        Locale and timezone are taken from the country's CountryConfig, falling
+        back to neutral defaults for unknown/unconfigured countries.
+        """
+        country_cfg = self.config.search_areas.get(country)
+        locale = country_cfg.locale if country_cfg else DEFAULT_LOCALE
+        timezone_id = country_cfg.timezone if country_cfg else DEFAULT_TIMEZONE
         viewport = random.choice(VIEWPORTS)
         user_agent = random.choice(USER_AGENTS)
 
@@ -76,14 +82,14 @@ class BrowserManager:
         context = await self._browser.new_context(
             viewport=viewport,
             user_agent=user_agent,
-            locale=locale_info["locale"],
-            timezone_id=locale_info["timezone"],
+            locale=locale,
+            timezone_id=timezone_id,
             proxy=proxy_settings,
             java_script_enabled=True,
         )
         return context
 
-    async def new_stealth_page(self, country: str = "DE") -> tuple[BrowserContext, Page]:
+    async def new_stealth_page(self, country: str = "") -> tuple[BrowserContext, Page]:
         """Create a new stealth page. Returns (context, page) - caller must close context."""
         context = await self.new_context(country)
         page = await context.new_page()

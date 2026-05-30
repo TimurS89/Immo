@@ -1,5 +1,7 @@
 # Data
-data/immo.db
+data/*.db
+data/*.db-wal
+data/*.db-shm
 data/reports/
 logs/
 

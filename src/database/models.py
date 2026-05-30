@@ -30,15 +30,12 @@ class Property(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     external_id = Column(String(255), nullable=False)
-    source = Column(
-        Enum(
-            "immoscout24", "immowelt", "kleinanzeigen", "wohnungsboerse",
-            "leboncoin", "seloger", "bienici", "pap", "paruvendu",
-            name="source_enum",
-        ),
-        nullable=False,
-    )
-    country = Column(Enum("DE", "FR", name="country_enum"), nullable=False)
+    # `source` and `country` are plain strings, not DB enums: the set of valid
+    # values is a country-scoped registry (see src/config.py CountryConfig.portals)
+    # so adding a country/portal (e.g. Luxembourg) never requires a schema change.
+    # Validation lives in the application/config layer, not a frozen CHECK constraint.
+    source = Column(String(50), nullable=False)
+    country = Column(String(2), nullable=False)
     listing_type = Column(Enum("rent", "buy", name="listing_type_enum"), nullable=False)
     property_type = Column(
         Enum("apartment", "house", "land", name="property_type_enum"), nullable=False

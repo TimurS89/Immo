@@ -1,12 +1,41 @@
-search:
-  germany:
-    - name: "Baden-Baden"
-      city: "Baden-Baden"
-      postal_codes: ["76530", "76532", "76534"]
-      radius_km: 0
-  france:
-    - name: "Alsace"
-      departments: ["67", "68"]
+# Country-keyed configuration. Add a country = add an entry here (no code changes).
+# DE and FR are kept for the cross-border option but DISABLED by default.
+# Luxembourg (LU) is auto-registered (enabled) from config/luxembourg.py — the
+# non-negotiable hard values (communes, filters, weights, DWS office) live there,
+# not here. Add an "LU:" block below only to override the defaults.
+search_areas:
+  DE:
+    enabled: false            # cross-border option, off by default
+    currency: EUR
+    locale: de-DE
+    timezone: Europe/Berlin
+    regions: ["Baden-Baden"]
+    areas:
+      - name: "Baden-Baden"
+        city: "Baden-Baden"
+        postal_codes: ["76530", "76532", "76534"]
+        radius_km: 0
+    portals:
+      - {name: immoscout24, enabled: true}
+      - {name: immowelt, enabled: true}
+      - {name: kleinanzeigen, enabled: true}
+      - {name: wohnungsboerse, enabled: true}
+
+  FR:
+    enabled: false            # cross-border option, off by default
+    currency: EUR
+    locale: fr-FR
+    timezone: Europe/Paris
+    regions: ["67", "68"]
+    areas:
+      - name: "Alsace"
+        departments: ["67", "68"]
+    portals:
+      - {name: leboncoin, enabled: true}
+      - {name: seloger, enabled: true}
+      - {name: bienici, enabled: true}
+      - {name: pap, enabled: true}
+      - {name: paruvendu, enabled: true}
 
 filters:
   buy:
@@ -23,9 +52,6 @@ filters:
     property_types: ["apartment", "house"]
 
 scrapers:
-  enabled:
-    germany: ["immoscout24", "immowelt", "kleinanzeigen", "wohnungsboerse"]
-    france: ["leboncoin", "seloger", "bienici", "pap", "paruvendu"]
   request_delay_seconds: [3, 8]
   max_pages_per_source: 20
   headless: true
