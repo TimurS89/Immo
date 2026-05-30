@@ -8,9 +8,13 @@ pure parsing logic here is unit-tested against fixtures in
 
 from __future__ import annotations
 
+import logging
+
 from .athome import AtHomeScraper
 from .immotop import ImmotopScraper
 from .wortimmo import WortimmoScraper
+
+logger = logging.getLogger(__name__)
 
 # LU source registry (name -> scraper class). Mirrors the legacy SCRAPER_REGISTRY
 # but targets the lux_monitor schema.
@@ -52,15 +56,27 @@ async def run_luxembourg(
 
     totals = {"new": 0, "updated": 0, "deactivated": 0}
     if scrape:
+        errors = 0
         for name in enabled:
             scraper_cls = LU_SCRAPERS.get(name)
             if not scraper_cls:
                 continue
             scraper = scraper_cls(config)
-            listings = await scraper.scrape()
-            counts = scraper.save_listings(session, listings)
-            for k in totals:
+            try:
+                listings = await scraper.scrape()
+                counts = scraper.save_listings(session, listings)
+            except Exception:
+                # A single portal failing (DNS, network, parse, site change) must
+                # never abort the whole run — log it, drop any partial state from
+                # this scraper, and carry on with the others + the offline stages.
+                logger.exception("scraper %r failed; skipping it", name)
+                session.rollback()
+                errors += 1
+                continue
+            for k in ("new", "updated", "deactivated"):
                 totals[k] += counts.get(k, 0)
+        if errors:
+            totals["scraper_errors"] = errors
 
     if dedup:
         totals["duplicates"] = mark_duplicates(session)

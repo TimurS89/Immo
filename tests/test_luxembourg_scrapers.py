@@ -112,3 +112,22 @@ def test_save_listings_upsert_and_price_history(lux_session):
 
     d = lux_session.query(Listing).filter_by(portal_listing_id="6543213").one()
     assert d.is_active is False
+
+
+def test_run_luxembourg_survives_a_failing_scraper(lux_session, monkeypatch):
+    """A portal raising (DNS/network/parse) must not abort the whole run."""
+    import asyncio
+
+    from src.config import load_config
+    from src.scrapers.luxembourg import LU_SCRAPERS, run_luxembourg
+
+    async def boom(self):
+        raise RuntimeError("simulated network failure")
+
+    for cls in LU_SCRAPERS.values():
+        monkeypatch.setattr(cls, "scrape", boom)
+
+    totals = asyncio.run(run_luxembourg(load_config(), lux_session))
+
+    assert totals.get("scraper_errors", 0) >= 1  # failures caught, not raised
+    assert "scored" in totals and "analyzed" in totals  # offline stages still ran
