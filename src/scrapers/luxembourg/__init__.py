@@ -65,11 +65,12 @@ async def run_luxembourg(
             try:
                 listings = await scraper.scrape()
                 counts = scraper.save_listings(session, listings)
-            except Exception:
+            except Exception as exc:
                 # A single portal failing (DNS, network, parse, site change) must
-                # never abort the whole run — log it, drop any partial state from
-                # this scraper, and carry on with the others + the offline stages.
-                logger.exception("scraper %r failed; skipping it", name)
+                # never abort the whole run — log it concisely (full traceback only
+                # at debug), drop any partial state, and carry on with the others.
+                logger.warning("scraper %r failed; skipping it: %s", name, exc)
+                logger.debug("scraper %r traceback", name, exc_info=True)
                 session.rollback()
                 errors += 1
                 continue
