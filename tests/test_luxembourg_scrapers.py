@@ -27,27 +27,31 @@ def _by_id(listings, ext_id):
 
 def test_athome_parse():
     listings = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "rent")
-    # 4 cards, one invalid (no surface) -> 3 parsed.
-    assert len(listings) == 3
+    # 4 entries: 2 residential pass; office + price-on-demand are dropped.
+    assert len(listings) == 2
 
-    a = _by_id(listings, "6543210")
-    assert a.portal == "athome" and a.commune == "Walferdange" and a.postcode == "7220"
-    assert a.rent_eur == 2500 and a.charges_eur == 250
-    assert a.bedrooms == 4 and a.rooms_total == 5
-    assert a.surface_m2 == 130 and a.floor == 1
-    assert a.energy_class == "B" and a.thermal_class == "C"
-    assert a.has_garden and a.has_garage and a.description_lang == "fr"
-    assert a.to_orm().rent_total_eur == 2750  # derived
+    a = _by_id(listings, "1001")
+    assert a.portal == "athome" and a.commune == "Strassen" and a.postcode == "8011"
+    assert a.listing_type == "rent" and a.rent_eur == 3500
+    assert a.bedrooms == 4 and a.surface_m2 == 180
+    assert a.has_garden and a.has_garage and a.has_balcony_terrace
+    assert a.lat == pytest.approx(49.6201) and a.lng == pytest.approx(6.0815)
+    assert a.construction_year == 2015 and a.floor is None
+    assert a.description_lang == "fr"
+    assert a.url == "https://www.athome.lu/rent/house/strassen/id-1001.html"
+    assert a.to_orm().rent_total_eur == 3500  # athome SERP has no charges
 
-    b = _by_id(listings, "6543211")  # pièces-only -> bedrooms inferred
-    assert b.bedrooms == 4 and b.rooms_total == 5
-    assert b.floor == 0 and b.charges_eur is None and b.has_balcony_terrace
-    assert b.commune == "Strassen"
+    b = _by_id(listings, "1002")  # commune from address.district, not cityName
+    assert b.commune == "Luxembourg" and b.postcode == "2551"
+    assert b.bedrooms == 4 and b.surface_m2 == 120 and b.rent_eur == 2800
+    assert b.floor == 2 and b.has_elevator is True
+    assert b.has_garden is False and b.has_garage is False and b.parking_spaces == 1
 
 
-def test_athome_skips_invalid_card():
-    listings = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "rent")
-    assert all(x.portal_listing_id != "6543212" for x in listings)  # no-surface card
+def test_athome_skips_nonresidential_and_price_on_demand():
+    ids = {x.portal_listing_id for x in AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "rent")}
+    assert "1003" not in ids  # office (non-residential portal_group)
+    assert "1004" not in ids  # price on demand
 
 
 # --- immotop (EN/FR, comma-thousands gotcha) ----------------------------------
@@ -90,27 +94,27 @@ def test_wortimmo_parse():
 def test_save_listings_upsert_and_price_history(lux_session):
     scraper = AtHomeScraper(AppConfig())
     listings = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "rent")
-    assert len(listings) == 3
+    assert len(listings) == 2
 
     res1 = scraper.save_listings(lux_session, listings)
-    assert res1 == {"new": 3, "updated": 0, "deactivated": 0}
-    assert lux_session.query(Listing).count() == 3
+    assert res1 == {"new": 2, "updated": 0, "deactivated": 0}
+    assert lux_session.query(Listing).count() == 2
 
-    # Second run: drop one listing, drop another, change rent on the first.
-    changed = listings[0].model_copy(update={"rent_eur": 2400})  # 6543210
-    res2 = scraper.save_listings(lux_session, [changed, listings[1]])
+    # Second run: change rent on 1001 and stop seeing 1002.
+    changed = listings[0].model_copy(update={"rent_eur": 3300})  # id 1001
+    res2 = scraper.save_listings(lux_session, [changed])
     assert res2["new"] == 0
-    assert res2["updated"] == 2
-    assert res2["deactivated"] == 1  # 6543213 no longer seen
+    assert res2["updated"] == 1
+    assert res2["deactivated"] == 1  # 1002 no longer seen
 
-    a = lux_session.query(Listing).filter_by(portal_listing_id="6543210").one()
-    assert a.rent_eur == 2400 and a.rent_total_eur == 2650
-    # initial 2750 + changed 2650 -> 2 price-history rows
+    a = lux_session.query(Listing).filter_by(portal_listing_id="1001").one()
+    assert a.rent_eur == 3300 and a.rent_total_eur == 3300
+    # initial 3500 + changed 3300 -> 2 price-history rows
     entries = lux_session.query(PriceHistoryEntry).filter_by(listing_id=a.id).all()
     assert len(entries) == 2
-    assert {e.price_eur for e in entries} == {2750, 2650}
+    assert {e.price_eur for e in entries} == {3500, 3300}
 
-    d = lux_session.query(Listing).filter_by(portal_listing_id="6543213").one()
+    d = lux_session.query(Listing).filter_by(portal_listing_id="1002").one()
     assert d.is_active is False
 
 
