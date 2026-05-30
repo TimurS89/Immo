@@ -31,7 +31,6 @@ AVG_DRIVE_KMH = 45.0       # effective average (a flat speed under-models highwa
 RUSH_DRIVE_FACTOR = 1.7    # peak congestion (NOT discounted)
 AVG_PT_KMH = 22.0          # effective public-transport speed
 PT_OVERHEAD_MIN = 12.0     # walk-to-stop + wait + transfer
-WALK_KMH = 4.8             # ~80 m/min
 MIN_DRIVE_MIN = 5          # floor so in-commune isn't an unrealistic 0–1 min
 
 _EARTH_R_KM = 6371.0
@@ -58,11 +57,6 @@ def estimate_drive_min(lat: float, lng: float, *, office=DWS_OFFICE) -> int:
 def estimate_pt_min(lat: float, lng: float, *, office=DWS_OFFICE) -> int:
     km = _road_km(lat, lng, office.lat, office.lng)
     return round(km / AVG_PT_KMH * 60 + PT_OVERHEAD_MIN)
-
-
-def estimate_walk_min(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
-    km = _road_km(lat1, lng1, lat2, lng2)
-    return round(km / WALK_KMH * 60)
 
 
 def commune_anchor(commune: str | None) -> tuple[float, float] | None:

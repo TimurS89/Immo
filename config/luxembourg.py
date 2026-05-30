@@ -14,8 +14,6 @@ registry by ``src.config.load_config`` via :func:`lu_country_config`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 # --- Locale / currency / portals -------------------------------------------------
 LU_COUNTRY_CODE = "LU"
@@ -44,23 +42,6 @@ DWS_OFFICE = Office(
     lat=49.6315,
     lng=6.1717,
 )
-
-
-def next_rush_hour_departure(now: datetime | None = None) -> datetime:
-    """Next Tuesday 08:00 in Europe/Luxembourg — *actual* peak, not discounted.
-
-    Used as the ``departure_time`` for drive/PT routing (Phase 4). If today is
-    Tuesday before 08:00, that's the result; otherwise the upcoming Tuesday.
-    """
-    tz = ZoneInfo(LU_TIMEZONE)
-    now = now.astimezone(tz) if now is not None else datetime.now(tz)
-    days_ahead = (1 - now.weekday()) % 7  # Tuesday == weekday() 1
-    candidate = now.replace(hour=8, minute=0, second=0, microsecond=0) + timedelta(
-        days=days_ahead
-    )
-    if candidate <= now:
-        candidate += timedelta(days=7)
-    return candidate
 
 
 # --- Target communes (search and filter scope) ----------------------------------

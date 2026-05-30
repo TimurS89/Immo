@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from config.luxembourg import (
     DWS_OFFICE,
     HARD_FILTERS,
@@ -15,11 +12,8 @@ from config.luxembourg import (
     SCORING_WEIGHTS,
     TARGET_COMMUNES,
     lu_country_config,
-    next_rush_hour_departure,
 )
 from src.config import load_config
-
-LUX = ZoneInfo("Europe/Luxembourg")
 
 
 # --- target communes ----------------------------------------------------------
@@ -71,22 +65,6 @@ def test_scoring_weights():
 def test_dws_office():
     assert DWS_OFFICE.address == "2 Boulevard Konrad Adenauer, L-1115 Luxembourg"
     assert DWS_OFFICE.coords == (49.6315, 6.1717)
-
-
-# --- rush-hour departure ------------------------------------------------------
-
-def test_next_rush_hour_departure_from_monday():
-    monday = datetime(2026, 1, 5, 9, 0, tzinfo=LUX)  # 2026-01-05 is a Monday
-    dep = next_rush_hour_departure(monday)
-    assert dep == datetime(2026, 1, 6, 8, 0, tzinfo=LUX)  # next day, Tuesday 08:00
-    assert dep.weekday() == 1 and dep.hour == 8
-
-
-def test_next_rush_hour_departure_tuesday_before_and_after_8():
-    tue_early = datetime(2026, 1, 6, 7, 0, tzinfo=LUX)
-    assert next_rush_hour_departure(tue_early) == datetime(2026, 1, 6, 8, 0, tzinfo=LUX)
-    tue_late = datetime(2026, 1, 6, 9, 0, tzinfo=LUX)
-    assert next_rush_hour_departure(tue_late) == datetime(2026, 1, 13, 8, 0, tzinfo=LUX)
 
 
 # --- country config + registry ------------------------------------------------

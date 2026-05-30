@@ -112,12 +112,9 @@ class Listing(Base):
     )
     listing_agency: Mapped[str | None] = mapped_column(String(256))
 
-    # --- Computed: routing / walkability (populated by routing.py) ---
+    # --- Computed: commute (populated by commute.py) ---
     drive_time_rush_min: Mapped[int | None] = mapped_column(Integer)
     pt_time_rush_min: Mapped[int | None] = mapped_column(Integer)
-    walk_to_school_min: Mapped[int | None] = mapped_column(Integer)  # école fondamentale
-    walk_to_creche_min: Mapped[int | None] = mapped_column(Integer)
-    walk_to_park_min: Mapped[int | None] = mapped_column(Integer)
 
     # --- LLM analysis (populated by llm.py) ---
     llm_quality_score: Mapped[int | None] = mapped_column(Integer)  # 0–100

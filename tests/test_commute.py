@@ -11,7 +11,6 @@ from src.lux_monitor.commute import (
     estimate_drive_min,
     estimate_for_commune,
     estimate_pt_min,
-    estimate_walk_min,
     haversine_km,
     populate_commute_times,
 )
@@ -33,12 +32,6 @@ def test_drive_monotonic_with_distance():
     near = estimate_drive_min(49.6300, 6.1700)  # ~at Kirchberg
     far = estimate_drive_min(49.6300, 6.0200)   # far west
     assert far > near
-
-
-def test_walk_increases_with_distance():
-    a = estimate_walk_min(49.6117, 6.1250, 49.6130, 6.1260)
-    b = estimate_walk_min(49.6117, 6.1250, 49.6300, 6.1700)
-    assert b > a >= 0
 
 
 def test_commune_estimates():
@@ -81,11 +74,9 @@ def test_populate_commute_times(lux_session):
 
     s = lux_session.query(Listing).filter_by(commune="Strassen").one()
     assert s.drive_time_rush_min and s.pt_time_rush_min
-    assert s.walk_to_school_min is None  # walk distances are no longer computed
 
     w = lux_session.query(Listing).filter_by(commune="Walferdange").one()
     assert w.drive_time_rush_min and w.pt_time_rush_min
-    assert w.walk_to_school_min is None
 
     off = lux_session.query(Listing).filter_by(commune="Esch-sur-Alzette").one()
     assert off.drive_time_rush_min is None

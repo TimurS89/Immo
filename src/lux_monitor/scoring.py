@@ -49,11 +49,6 @@ def _clip01(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
-def filters_for(listing_type: str | None = None) -> dict:
-    """The hard-filter dict (furnished / rent / buy share the same criteria)."""
-    return HARD_FILTERS
-
-
 # --------------------------------------------------------------------------- #
 # Stage 1: hard filter — commune, room count, surface (no price/commute caps)
 # --------------------------------------------------------------------------- #
