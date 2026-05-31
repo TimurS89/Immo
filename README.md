@@ -68,8 +68,8 @@ status is per‑portal:
 | Database + schema (SQLite, Alembic migrations) | ✅ Done |
 | Config: target communes, hard filters, scoring weights | ✅ Done |
 | **athome.lu** scraper | ✅ **Working live** (parses the site's embedded JSON) |
-| immotop.lu scraper | ⛔ Bot‑blocked (wrong URL + 403) — needs a browser |
-| wortimmo.lu scraper | ⛔ Bot‑blocked (403 on the real domain) — needs a browser |
+| immotop.lu scraper | 🅿️ **Parked** — Cloudflare‑walled *and* largely duplicates athome; code kept, disabled in `ACTIVE_PORTALS` |
+| wortimmo.lu scraper | 🅿️ **Parked** — same (also a bot‑challenge) |
 | Cross‑portal de‑duplication | ✅ Done |
 | Commute estimate (offline) | ✅ Done |
 | Description analysis (offline heuristics) | ✅ Done |

@@ -22,6 +22,12 @@ LU_LOCALE = "fr-LU"  # primary; de-LU and en also appear in listings
 LU_TIMEZONE = "Europe/Luxembourg"
 LU_PORTALS: tuple[str, ...] = ("athome", "immotop", "wortimmo")
 
+# Only athome runs by default. immotop & wortimmo are PARKED: both are
+# Cloudflare-walled (would need a headless browser) and largely duplicate athome's
+# agency listings, so the effort-to-payoff is poor. Their scrapers stay in the
+# codebase — move a name here to re-enable it.
+ACTIVE_PORTALS: tuple[str, ...] = ("athome",)
+
 
 # --- DWS office: the commute origin/destination ---------------------------------
 @dataclass(frozen=True)
@@ -122,5 +128,7 @@ def lu_country_config():
         timezone=LU_TIMEZONE,
         regions=list(TARGET_COMMUNES),
         areas=areas,
-        portals=[PortalConfig(name=p) for p in LU_PORTALS],
+        portals=[
+            PortalConfig(name=p, enabled=(p in ACTIVE_PORTALS)) for p in LU_PORTALS
+        ],
     )

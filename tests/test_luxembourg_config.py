@@ -75,7 +75,9 @@ def test_lu_country_config():
     assert cc.currency == "EUR"
     assert cc.locale == LU_LOCALE == "fr-LU"
     assert cc.timezone == "Europe/Luxembourg"
-    assert cc.enabled_portals() == ["athome", "immotop", "wortimmo"]
+    # Only athome runs; immotop & wortimmo are registered but parked (disabled).
+    assert cc.enabled_portals() == ["athome"]
+    assert {p.name for p in cc.portals} == {"athome", "immotop", "wortimmo"}
     assert len(cc.areas) == len(TARGET_COMMUNES)
     assert {a.name for a in cc.areas} == set(TARGET_COMMUNES)
 
@@ -85,7 +87,7 @@ def test_load_config_registers_luxembourg():
     assert "LU" in cfg.search_areas
     lu = cfg.search_areas["LU"]
     assert lu.enabled is True
-    assert lu.enabled_portals() == ["athome", "immotop", "wortimmo"]
+    assert lu.enabled_portals() == ["athome"]  # immotop & wortimmo parked
     # DE/FR remain present but disabled (cross-border option).
     assert cfg.search_areas["DE"].enabled is False
     assert cfg.search_areas["FR"].enabled is False
