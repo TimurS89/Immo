@@ -101,7 +101,7 @@ sort_by = st.sidebar.selectbox("Sort by", ["score", "€", "first seen", "drive"
 ascending = st.sidebar.toggle("Ascending", value=False)
 st.sidebar.divider()
 new_only = st.sidebar.toggle("🆕 New only", value=False)
-new_days = st.sidebar.slider("…first seen within (days)", 1, 30, 7)
+new_days = st.sidebar.slider("…first seen within (days)", 1, 30, 7) if new_only else 7
 
 view = df.copy()
 if scored_only:

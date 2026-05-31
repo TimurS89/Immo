@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from src.lux_monitor.models import Listing
 
@@ -61,8 +61,10 @@ def price_drops(session: Session, *, days: int = 30, scored_only: bool = True) -
     Compares the last two price-history points; biggest percentage drop first.
     """
     cutoff = _utc_cutoff(days)
-    query = session.query(Listing).filter(
-        Listing.is_active.is_(True), Listing.duplicate_of_id.is_(None)
+    query = (
+        session.query(Listing)
+        .options(selectinload(Listing.price_history_entries))  # avoid N+1
+        .filter(Listing.is_active.is_(True), Listing.duplicate_of_id.is_(None))
     )
     if scored_only:
         query = query.filter(Listing.score_total.isnot(None))
