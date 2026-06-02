@@ -99,3 +99,10 @@ def test_load_config_registers_luxembourg():
     assert cfg.search_areas["DE"].enabled is False
     assert cfg.search_areas["FR"].enabled is False
     assert "LU" in cfg.enabled_countries()
+
+
+def test_loaded_max_pages_allows_full_pagination():
+    # Guard: the example YAML (used when config.yaml is absent) must not cap
+    # pagination below what the largest commune+type needs (Luxembourg buy ≈ 73
+    # pages). A low value here silently truncates the harvest.
+    assert load_config().scrapers.max_pages_per_source >= 200

@@ -53,7 +53,10 @@ filters:
 
 scrapers:
   request_delay_seconds: [3, 8]
-  max_pages_per_source: 20
+  # High enough to fully paginate the largest commune+type (with server-side
+  # surface/bedroom filters, even Luxembourg buy is well under this). Small
+  # searches stop early at their own total, so this only deepens the big ones.
+  max_pages_per_source: 250
   headless: true
   captcha_service: null
 
