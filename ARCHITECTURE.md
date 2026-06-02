@@ -1,8 +1,14 @@
 # ARCHITECTURE.md
 
-> Snapshot of the **Immo** property-search automation tool as it exists today
-> (originally built for **Baden-Baden, Germany + Alsace, France**).
-> This document describes the *current* system. It is the input for
+> ⚠️ **LEGACY / HISTORICAL DESIGN DOC.** This captured the *original*
+> Germany/France tool (and was the input to the Luxembourg retargeting in
+> `ADAPTATION_PLAN.md`). Statements like "filtering but no scoring" describe that
+> old codebase, **not** the current Luxembourg monitor — for which the canonical
+> docs are `README.md` and `SESSION_HANDOFF.md`. Kept for reference.
+
+> Snapshot of the **Immo** property-search automation tool as originally built
+> for **Baden-Baden, Germany + Alsace, France**.
+> It is the input for
 > `ADAPTATION_PLAN.md`, which describes how to retarget it to **Luxembourg**.
 
 ---

@@ -37,18 +37,22 @@ Every run, the tool:
 
 1. **Scrapes** the configured Luxembourg portals for three categories — **furnished
    rentals, long‑term rentals (flats + houses), and properties to buy** — in your
-   target communes. (It stores the advert link, not photos.)
+   target communes, filtered server‑side by surface and bedrooms. (It stores the
+   advert link, not photos.)
 2. **Stores** each listing in a local SQLite database, tracking price changes,
    when it first/last appeared, and when it disappears (a useful "rented/sold"
    signal).
-3. **De‑duplicates** the same property listed on more than one portal.
-4. **Estimates the commute** (drive + public transport, at rush hour) to the
-   office, and a walk time to the local school.
-5. **Analyzes the description** (FR/DE/EN) for red flags ("to renovate", "viager",
+3. **Prunes** anything already stored that no longer matches the current filters
+   (so tightening a filter trims the database on the next run, no re‑scrape).
+4. **De‑duplicates** the same property listed on more than one portal.
+5. **Estimates the commute** (drive + public transport, at rush hour) to the office.
+6. **Analyzes the description** (FR/DE/EN) for red flags ("to renovate", "viager",
    noisy road…) and highlights ("renovated", "bright", "near transport").
-6. **Filters** out anything failing your hard criteria, then **scores** the rest
+7. **Filters** out anything failing your hard criteria, then **scores** the rest
    0–100 on a weighted blend of your preferences.
-7. **Surfaces** a ranked shortlist in the terminal.
+8. **Records a market snapshot** — daily median price, €/m² and counts per type
+   and commune — building a trend you can chart over months.
+9. **Surfaces** a ranked shortlist in the terminal and a browser dashboard.
 
 > Note: the project was originally a Germany/France property tool and was
 > **retargeted to Luxembourg**. The old DE/FR code still exists in the repo but is
@@ -59,42 +63,44 @@ Every run, the tool:
 
 ## Current status
 
-The **entire offline pipeline is built, tested (116 passing tests), and working
-end‑to‑end.** Live scraping is the part that depends on the outside world, so its
-status is per‑portal:
+The pipeline is built, **tested (132 passing tests)**, and **running live against
+athome.lu** end‑to‑end. A full run currently harvests ~1,500 matching listings
+across the three types in the 7 target communes.
 
 | Component | Status |
 |---|---|
 | Database + schema (SQLite, Alembic migrations) | ✅ Done |
-| Config: target communes, hard filters, scoring weights | ✅ Done |
-| **athome.lu** scraper | ✅ **Working live** (parses the site's embedded JSON) |
+| Config: communes, hard filters, price caps, scoring weights | ✅ Done |
+| **athome.lu** scraper | ✅ **Working live** — embedded JSON, server‑side location/surface/bedroom filters, full pagination |
 | immotop.lu scraper | 🅿️ **Parked** — Cloudflare‑walled *and* largely duplicates athome; code kept, disabled in `ACTIVE_PORTALS` |
 | wortimmo.lu scraper | 🅿️ **Parked** — same (also a bot‑challenge) |
+| Retroactive prune (re‑apply filters to stored data) | ✅ Done |
 | Cross‑portal de‑duplication | ✅ Done |
-| Commute estimate (offline) | ✅ Done |
-| Description analysis (offline heuristics) | ✅ Done |
-| Hard filter + weighted scoring | ✅ Done |
+| Commute estimate (offline drive + PT) | ✅ Done |
+| Description analysis (offline FR/DE/EN heuristics) | ✅ Done |
+| Hard filter + price caps + weighted scoring | ✅ Done |
+| Market snapshots + dashboard trend charts | ✅ Done |
 | Orchestrator CLI (`python -m src.lux_monitor`) | ✅ Done |
-| Cron wrapper for scheduling | ✅ Done |
+| Browser dashboard (Streamlit, phone‑friendly) | ✅ Done |
+| Cron wrapper for daily scheduling | ✅ Done |
 | Push notifications (email / Telegram) | ❌ Not built |
-| Web dashboard | ❌ Not built |
 
-**In practice:** a real run today scrapes **athome.lu** (the dominant LU portal),
-stores listings, scores them, and prints the shortlist — a genuinely useful
-monitor. The other two portals actively block automated requests and are parked
-until/unless they're worth the extra effort (see [Outstanding](#whats-outstanding)).
+**In practice:** a real run scrapes **athome.lu** (the dominant LU portal), stores
+and scores listings, records a market snapshot, and surfaces a ranked shortlist in
+the terminal or the dashboard. The other two portals actively block automated
+requests and are parked (see [Outstanding](#whats-outstanding)).
 
 ---
 
 ## How it works
 
 ```
-            ┌─────────────────────────── run_luxembourg() ───────────────────────────┐
- portals →  │  scrape → save (+price history) → dedup → commute → analyze → score    │ → shortlist
- (athome…)  └────────────────────────────────────────────────────────────────────────┘
-                  │            │                  │           │          │
-              httpx +      SQLite          haversine     FR/DE/EN     weighted
-              JSON parse   (upsert)         estimate      keywords     0–100
+        ┌──────────────────────────────── run_luxembourg() ────────────────────────────────┐
+portals→│ scrape → save(+price history) → prune → dedup → commute → analyze → score → snapshot │→ shortlist
+(athome)└──────────────────────────────────────────────────────────────────────────────────┘     + dashboard
+              │           │                          │          │         │          │
+          httpx +      SQLite                    haversine   FR/DE/EN   weighted    daily
+          JSON parse   (upsert)                  estimate    keywords   0–100       medians
 ```
 
 - **Resilient by design:** if one portal fails (DNS, 403, a site redesign), it's
@@ -107,13 +113,14 @@ until/unless they're worth the extra effort (see [Outstanding](#whats-outstandin
 
 ### The two-stage selection
 
-1. **Hard filter** (deliberately small) — commune in the target set, **3–8 rooms**
-   (pièces if the portal reports them, else bedrooms), and **surface ≥ 80 m²**.
-   That's it: price and commute are **not** knockouts — every matching property is
-   stored, and commute is used as a soft indicator instead.
-2. **Soft score** (0–100) — a weighted blend of: drive time (25), PT time (20),
-   foreign‑resident % of the commune (15), description quality (14), energy class
-   (10), garage (8), garden (8). Missing data scores *neutral*, never punishing.
+1. **Hard filter** — commune in the target set, **3–8 rooms** (pièces; when the
+   portal doesn't report them we estimate bedrooms + 1, so "3 rooms" ≈ 2 bedrooms),
+   **surface ≥ 80 m²**, and a **per‑type price cap** (buy ≤ €3M, rent ≤ €6,000/mo,
+   furnished uncapped). Commute is **not** a knockout — it's a soft indicator.
+2. **Soft score** (0–100) — a weighted blend of: bedrooms (18), drive time (20),
+   PT time (15), foreign‑resident % of the commune (13), description quality (12),
+   energy class (8), garage (7), garden (7). Missing data scores *neutral*, never
+   punishing.
 
 ---
 
@@ -135,7 +142,7 @@ pip install "sqlalchemy>=2.0,<3.0" "pydantic>=2.5,<3.0" "rich>=13.7,<14.0" \
 
 alembic upgrade head          # build the SQLite database (data/monitor.db)
 
-python -m src.lux_monitor run --max-pages 1   # a small, polite first run
+python -m src.lux_monitor run                 # full harvest (~5 min, polite delays)
 python -m src.lux_monitor shortlist --top 20  # see the ranked results
 ```
 
@@ -160,15 +167,19 @@ python -m src.lux_monitor run --no-scrape
 # Explain why one listing got the score it did
 python -m src.lux_monitor.scoring --explain <listing_id>
 
-# Limit request volume (useful for testing)
-python -m src.lux_monitor run --max-pages 2
+# Browser dashboard (filter/sort, price drops, market trends) — phone-friendly
+python -m src.lux_monitor dashboard
+#   PC:    http://localhost:8501
+#   phone: http://<this-machine-LAN-IP>:8501   (same Wi-Fi)
 ```
 
 **Reading the output:** the run prints a one‑line summary like
-`pipeline: new=12 … scored=1 filtered_out=11 scraper_errors=1`. `new` is how many
-listings came back; `scored` is how many survived the hard filter; `scraper_errors`
-counts portals that failed and were skipped. The shortlist table shows score,
-commune, beds, m², price, drive/PT minutes, energy class, garage/garden.
+`pipeline: new=… pruned=… scored=… snapshot_segments=…`, and a per‑commune
+**funnel** line (`athome funnel rent Luxembourg total=… pages=… kept=…`) so a thin
+harvest is instantly diagnosable. The shortlist table shows score, type, commune,
+bedrooms, m², price, drive/PT minutes, energy class, garage/garden.
+
+> The dashboard needs Streamlit (not in the lean install): `pip install streamlit`.
 
 **Scheduling (cron):** `scripts/run_lux.sh` activates the venv, runs the pipeline,
 and logs to `logs/lux_run.log`. Add it with `crontab -e`:
@@ -191,10 +202,12 @@ constants (no YAML to wrangle):
 - **`TARGET_COMMUNES`** — the 7 communes searched/scored: Luxembourg, Strassen,
   Bertrange, Mamer, Walferdange, Hesperange, Leudelange — each with its
   foreign‑resident %, train flag, and centre coordinates (for the commute estimate).
-- **`HARD_FILTERS`** — the (small) knockouts: **3–8 rooms, surface ≥ 80 m², commune**.
-  No price or commute caps — everything matching is stored.
-- **`SCORING_WEIGHTS`** — the soft‑score weights (must sum to 100): commute
-  (drive + PT), foreign %, description quality, energy, garage, garden.
+- **`HARD_FILTERS`** — the knockouts: **3–8 rooms, surface ≥ 80 m², commune**.
+- **`MAX_PRICE_EUR`** — per‑type price caps (buy €3M, rent €6,000, furnished `None`).
+- **`SCORING_WEIGHTS`** — the soft‑score weights (must sum to 100): bedrooms,
+  commute (drive + PT), foreign %, description quality, energy, garage, garden.
+- **`COMMUNE_HKEYS`** — athome's location‑filter token per commune (captured from
+  the site; the scraper sends these so each search is server‑side filtered).
 - **`DWS_OFFICE`** — the commute destination (Kirchberg).
 
 Tuning anything here, then `python -m src.lux_monitor run --no-scrape`, re‑ranks
@@ -213,10 +226,13 @@ src/lux_monitor/
   schemas.py                  # Pydantic validation (ListingCreate)
   db.py                       # engine/session helpers (SQLite)
   dedup.py                    # cross-portal de-duplication
-  commute.py                  # offline drive/PT/walk estimate
+  commute.py                  # offline drive/PT estimate
   analysis.py                 # offline FR/DE/EN description heuristics
-  scoring.py                  # hard filter + weighted score + Rich shortlist
-  __main__.py                 # the `python -m src.lux_monitor` CLI
+  scoring.py                  # hard filter + price caps + weighted score + prune + Rich shortlist
+  digest.py                   # "new since last run" + price-drops queries
+  snapshots.py                # daily market aggregates (trend layer)
+  dashboard.py                # Streamlit browser dashboard
+  __main__.py                 # the `python -m src.lux_monitor` CLI (run/shortlist/dashboard/init-db)
 src/scrapers/luxembourg/
   base.py                     # shared scraper base (upsert, price history)
   athome.py                   # athome.lu (parses window.__INITIAL_STATE__ JSON)
@@ -224,7 +240,7 @@ src/scrapers/luxembourg/
   __init__.py                 # run_luxembourg() orchestrator
 alembic/                      # database migrations
 scripts/run_lux.sh            # cron wrapper
-tests/                        # 116 tests (pytest)
+tests/                        # 132 tests (pytest)
 SETUP.md / RUNBOOK.md / ARCHITECTURE.md   # deeper docs
 ```
 
@@ -248,17 +264,16 @@ SETUP.md / RUNBOOK.md / ARCHITECTURE.md   # deeper docs
 
 ## What's outstanding
 
-- **immotop.lu & wortimmo.lu** return `403`/`404` to simple HTTP requests (bot
-  protection). Supporting them would need real browser automation (Playwright +
-  stealth) and may still hit Terms‑of‑Service limits. Parked for now; **athome
+- **Notifications** — a **once‑a‑day Gmail digest** (new matches + price drops) is
+  the main thing left to build; until then you check the dashboard or the cron log.
+- **immotop.lu & wortimmo.lu** are **parked** — Cloudflare‑walled (would need a
+  headless browser) and largely duplicate athome, so the payoff is low. **athome
   alone covers most of the market.**
-- **Notifications** — a **once‑a‑day Gmail digest** is the next thing to build;
-  until then you check the shortlist or the cron log.
-- **Web dashboard** — browsing/filtering/trends in a UI (a Streamlit app) is
-  scaffolded in the legacy stack but not wired to `lux_monitor`.
-- **Buy‑side & richer detail** — sales work but are less exercised than rentals;
-  per‑listing detail‑page enrichment (energy class, full photos) is not done — the
-  scraper currently uses what the search results page provides.
+- **Richer per‑listing detail** — the scraper uses the search‑results JSON, which
+  omits energy class (so that subscore stays neutral). Fetching each advert page
+  would fill it in, at the cost of many more requests.
+- **A furnished‑specialist source** (e.g. HousingAnywhere) would add coverage in
+  the one segment the big portals under‑serve.
 
 ---
 
