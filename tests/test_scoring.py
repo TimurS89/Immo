@@ -59,17 +59,20 @@ def test_passes_default():
 
 
 def test_knockouts():
-    assert not passes_hard_filter(_orm(bedrooms=2)).passed   # rooms 2 < 3
-    assert not passes_hard_filter(_orm(bedrooms=9)).passed   # rooms 9 > 8
+    # rooms = bedrooms+1 when rooms_total missing, so 1 bed -> 2 pièces < 3 -> fail
+    assert not passes_hard_filter(_orm(bedrooms=1)).passed
+    assert not passes_hard_filter(_orm(bedrooms=8)).passed   # 9 pièces > 8
     assert not passes_hard_filter(_orm(surface=70)).passed   # < 80 m²
     res = passes_hard_filter(_orm(commune="Esch-sur-Alzette"))
     assert not res.passed and any("not in target" in r for r in res.reasons)
 
 
-def test_rooms_prefers_total_then_bedrooms():
+def test_rooms_uses_total_then_estimates_from_bedrooms():
     assert passes_hard_filter(_orm(bedrooms=1, rooms_total=3)).passed       # 3 pièces ok
     assert not passes_hard_filter(_orm(bedrooms=1, rooms_total=2)).passed   # 2 pièces too few
-    assert passes_hard_filter(_orm(bedrooms=4, rooms_total=None)).passed    # falls back to bedrooms
+    # no rooms_total -> estimate bedrooms+1: 2 bed -> 3 pièces passes (the key fix)
+    assert passes_hard_filter(_orm(bedrooms=2)).passed
+    assert passes_hard_filter(_orm(bedrooms=4)).passed
 
 
 def test_commute_is_only_an_indicator():
@@ -122,7 +125,7 @@ def test_neutral_for_missing_llm():
 def test_apply_scores_and_top(lux_session):
     passer = _orm(commune="Luxembourg", drive=10, pt=20, energy_class="A", has_garage=True)
     weak = _orm(commune="Leudelange", drive=30, pt=45)
-    failer = _orm(bedrooms=2)  # rooms 2 < 3
+    failer = _orm(bedrooms=1)  # 2 pièces < 3
     lux_session.add_all([passer, weak, failer])
     lux_session.commit()
 

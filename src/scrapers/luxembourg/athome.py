@@ -24,14 +24,20 @@ from src.scrapers.luxembourg.base import USER_AGENT, LuxBaseScraper
 
 logger = logging.getLogger(__name__)
 
-# How athome encodes each of our three categories as a search. furnished is a
-# rental search with the furnished facet on (?ire=1); rent excludes furnished
-# (?iere=1) so the two don't overlap; buy is a sale search.
+# How athome encodes our searches. NOTE: athome has no working URL facet for
+# "furnished" (the ire/iere params are ignored — verified live: rent and furnished
+# searches returned identical totals). So we run ONE rental search and classify
+# furnished vs long-term from the listing text below.
 TRANSACTION_PARAMS: dict[str, str] = {
-    "rent": "tr=rent&iere=1",       # long-term rental (exclude furnished)
-    "furnished": "tr=rent&ire=1",   # furnished rental
-    "buy": "tr=buy",                # sale
+    "rent": "tr=rent",
+    "buy": "tr=buy",
 }
+
+# Furnished detection (FR/DE/EN). Match the *adjective* "meublé/meublée/..." (with
+# its accent) — NOT the accent-stripped "meuble(s)" which means "furniture" and
+# would false-positive on "beaux meubles". Exclude explicit negations.
+_FURNISHED_RE = re.compile(r"(meubl(?:é|ée|és|ées))|möbliert|furnished", re.IGNORECASE)
+_NOT_FURNISHED_RE = re.compile(r"non\s+meubl|nicht\s+möbliert|unfurnished", re.IGNORECASE)
 
 # immotype.portal_group values that are not homes — skip them.
 NONRESIDENTIAL_GROUPS = {
@@ -149,14 +155,16 @@ class AtHomeScraper(LuxBaseScraper):
 
         meta = meta or {}
         price = _to_float(entry.get("price")) or _to_float(entry.get("price_min"))
-        # Category follows the SEARCH this page came from (listing_type), since the
-        # furnished facet is a search filter and entries don't self-identify as
-        # furnished. Default by the entry's own transaction type if unknown.
-        if listing_type in ("rent", "furnished", "buy"):
-            lt = listing_type
+        # Sale vs rental comes from the SEARCH (buy vs rent). Within rentals,
+        # furnished is detected from the listing text (athome has no working
+        # furnished URL facet, and its per-entry hasFurnished is always -1/None).
+        is_sale = listing_type == "buy"
+        if is_sale:
+            lt = "buy"
         else:
-            lt = "buy" if (entry.get("transactionType") or "").lower() == "buy" else "rent"
-        is_sale = lt == "buy"
+            descs_all = entry.get("descriptions") or {}
+            blob = " ".join(str(v) for v in descs_all.values()) + " " + str(entry.get("description") or "")
+            lt = "furnished" if (_FURNISHED_RE.search(blob) and not _NOT_FURNISHED_RE.search(blob)) else "rent"
         # Rentals must have a price (we score on it); sales are often
         # "price on request" — keep those (price stays None).
         if not is_sale and (meta.get("isPriceOnDemand") or not price):
@@ -228,8 +236,8 @@ class AtHomeScraper(LuxBaseScraper):
                 return name
         return city or None
 
-    # Categories to harvest (each is a distinct athome search).
-    CATEGORIES = ("rent", "furnished", "buy")
+    # Searches to run (furnished is derived from the rent search, not its own).
+    CATEGORIES = ("rent", "buy")
 
     async def _get(self, client, url: str, *, tries: int = 4):
         """GET with backoff retry (the workstation link can be flaky)."""

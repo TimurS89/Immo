@@ -45,16 +45,17 @@ def test_athome_parse():
 
     b = _by_id(listings, "1002")  # commune from address.district, not cityName
     assert b.commune == "Luxembourg" and b.postcode == "2551"
-    assert b.listing_type == "rent"  # category follows the SEARCH, not a field
+    assert b.listing_type == "furnished"  # "meublé" in description -> furnished
     assert b.bedrooms == 4 and b.surface_m2 == 120 and b.rent_eur == 2800
     assert b.floor == 2 and b.has_elevator is True
     assert b.has_garden is False and b.has_garage is False and b.parking_spaces == 1
 
 
-def test_athome_category_follows_search():
-    # The SAME fixture parsed as a furnished search -> furnished listings.
-    furn = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "furnished")
-    assert {x.listing_type for x in furn} == {"furnished"}
+def test_athome_furnished_detection_from_text():
+    listings = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "rent")
+    # 1001 ("maison ... jardin et garage") -> long-term; 1002 ("meublé") -> furnished
+    assert _by_id(listings, "1001").listing_type == "rent"
+    assert _by_id(listings, "1002").listing_type == "furnished"
 
 
 def test_athome_skips_nonresidential():

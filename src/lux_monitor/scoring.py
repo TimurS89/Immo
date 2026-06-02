@@ -59,8 +59,15 @@ class FilterResult:
 
 
 def _effective_rooms(listing: Listing) -> int:
-    """Total rooms (pièces) when the portal reports them, else bedrooms."""
-    return listing.rooms_total if listing.rooms_total else listing.bedrooms
+    """Total rooms (pièces). athome rarely reports rooms_total, so when it's
+    missing estimate pièces as bedrooms + 1 (a living room): a "3-room" flat is
+    2 bedrooms + living. This matches how LU listings advertise "X pièces" and
+    keeps "min 3 rooms" from silently meaning "min 3 bedrooms"."""
+    if listing.rooms_total:
+        return listing.rooms_total
+    if listing.bedrooms:
+        return listing.bedrooms + 1
+    return listing.bedrooms
 
 
 def passes_hard_filter(listing: Listing, filters: dict | None = None) -> FilterResult:
