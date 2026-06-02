@@ -32,6 +32,7 @@ async def run_luxembourg(
     session,
     *,
     scrape: bool = True,
+    prune: bool = True,
     dedup: bool = True,
     commute: bool = True,
     analyze: bool = True,
@@ -40,16 +41,17 @@ async def run_luxembourg(
     """Scrape all enabled LU portals, persist, de-dup, estimate commutes,
     analyze descriptions, and score.
 
-    Intended entry point for the workstation live run (Phase 3 item 7). The
-    post-scrape stages run in dependency order: dedup -> commute -> analyze ->
-    score (scoring reads both the commute times and the description quality).
+    Intended entry point for the workstation live run. Post-scrape stages run in
+    dependency order: prune -> dedup -> commute -> analyze -> score. ``prune``
+    deactivates already-stored listings that no longer pass the current hard
+    filter, so tightening a filter trims the DB on the next run (no re-scrape).
     Pass ``scrape=False`` to recompute the offline stages on existing data
     without any network access.
     """
     from src.lux_monitor.analysis import apply_analysis
     from src.lux_monitor.commute import populate_commute_times
     from src.lux_monitor.dedup import mark_duplicates
-    from src.lux_monitor.scoring import apply_scores, passes_hard_filter
+    from src.lux_monitor.scoring import apply_scores, passes_hard_filter, prune_nonmatching
 
     lu = config.search_areas.get("LU")
     enabled = lu.enabled_portals() if (lu and lu.enabled) else list(LU_SCRAPERS)
@@ -82,6 +84,10 @@ async def run_luxembourg(
         if errors:
             totals["scraper_errors"] = errors
 
+    if prune:
+        # Retroactively drop already-stored listings that no longer match the
+        # current filters (so tightening a filter trims the DB next run).
+        totals["pruned"] = prune_nonmatching(session)
     if dedup:
         totals["duplicates"] = mark_duplicates(session)
     if commute:

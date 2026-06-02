@@ -11,6 +11,7 @@ from src.lux_monitor.scoring import (
     NEUTRAL,
     apply_scores,
     passes_hard_filter,
+    prune_nonmatching,
     score_listing,
     top_listings,
 )
@@ -169,3 +170,19 @@ def test_furnished_is_scored(lux_session):
     lux_session.commit()
     apply_scores(lux_session)
     assert furnished.score_total is not None  # furnished passes the same filter
+
+
+def test_prune_nonmatching(lux_session):
+    keep = _orm(commune="Luxembourg", bedrooms=4)
+    over_cap = _orm(listing_type="buy", commune="Luxembourg", price=5_000_000)  # > €3M now
+    off_target = _orm(commune="Esch-sur-Alzette")
+    lux_session.add_all([keep, over_cap, off_target])
+    lux_session.commit()
+
+    pruned = prune_nonmatching(lux_session)
+    assert pruned == 2  # over_cap + off_target deactivated
+
+    assert keep.is_active is True
+    assert over_cap.is_active is False and off_target.is_active is False
+    # idempotent: a second prune deactivates nothing more
+    assert prune_nonmatching(lux_session) == 0

@@ -173,6 +173,27 @@ def score_listing(listing: Listing, filters: dict | None = None) -> ScoreBreakdo
     return ScoreBreakdown(total=round(total, 1), parts=parts)
 
 
+def prune_nonmatching(session: Session) -> int:
+    """Deactivate already-stored listings that no longer pass the hard filter.
+
+    Retroactively applies the current filters (commune / rooms / surface / price
+    cap) to the existing DB — so tightening a filter trims stale rows on the next
+    run without a full re-scrape. Deactivates (is_active=False) rather than
+    deleting, so it's reversible and keeps price history. Returns the count
+    deactivated.
+    """
+    active = session.query(Listing).filter(Listing.is_active.is_(True)).all()
+    pruned = 0
+    for listing in active:
+        if not passes_hard_filter(listing).passed:
+            listing.mark_inactive()
+            pruned += 1
+    session.commit()
+    if pruned:
+        logger.info("prune_nonmatching: deactivated %d listing(s) now outside the filters", pruned)
+    return pruned
+
+
 def apply_scores(session: Session, *, only_active: bool = True) -> dict[str, int]:
     """Filter + score active, non-duplicate listings; write ``score_total``.
 
