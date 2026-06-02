@@ -81,9 +81,26 @@ def test_commute_is_only_an_indicator():
     assert passes_hard_filter(_orm(drive=None, pt=None)).passed
 
 
-def test_price_is_not_a_filter():
-    assert passes_hard_filter(_orm(listing_type="buy", price=9_000_000)).passed
-    assert passes_hard_filter(_orm(listing_type="furnished", rent=9000)).passed
+def test_price_cap_buy():
+    assert passes_hard_filter(_orm(listing_type="buy", price=2_900_000)).passed
+    assert not passes_hard_filter(_orm(listing_type="buy", price=3_100_000)).passed  # > €3M
+
+
+def test_price_cap_rent():
+    assert passes_hard_filter(_orm(listing_type="rent", rent=5_500)).passed
+    assert not passes_hard_filter(_orm(listing_type="rent", rent=6_500)).passed  # > €6000/mo
+
+
+def test_furnished_is_uncapped():
+    # furnished has no price ceiling
+    assert passes_hard_filter(_orm(listing_type="furnished", rent=20_000)).passed
+
+
+def test_unknown_price_passes():
+    # a sale with price on request (None) is not rejected by the cap
+    l = _orm(listing_type="buy")
+    l.price_eur = None
+    assert passes_hard_filter(l).passed
 
 
 # --- soft score ---------------------------------------------------------------

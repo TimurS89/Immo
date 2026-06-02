@@ -8,6 +8,7 @@ from config.luxembourg import (
     HARD_FILTERS_BUY,
     HARD_FILTERS_RENT,
     LU_LOCALE,
+    MAX_PRICE_EUR,
     PRIMARY_COMMUNES,
     SCORING_WEIGHTS,
     TARGET_COMMUNES,
@@ -41,11 +42,17 @@ def test_hard_filters():
     assert HARD_FILTERS["max_rooms"] == 8
     assert HARD_FILTERS["min_surface_m2"] == 80
     assert HARD_FILTERS["communes"] == list(TARGET_COMMUNES)
-    # furnished / rent / buy share the same criteria now
+    # furnished / rent / buy share the room/surface/commune criteria
     assert HARD_FILTERS_RENT is HARD_FILTERS and HARD_FILTERS_BUY is HARD_FILTERS
-    # price and commute are no longer knockouts
-    assert "min_rent_total_eur" not in HARD_FILTERS
+    # commute is not a knockout; there is no minimum price
     assert "max_drive_time_rush_min" not in HARD_FILTERS
+    assert "min_rent_total_eur" not in HARD_FILTERS
+
+
+def test_price_caps():
+    assert MAX_PRICE_EUR["buy"] == 3_000_000
+    assert MAX_PRICE_EUR["rent"] == 6_000
+    assert MAX_PRICE_EUR["furnished"] is None  # furnished uncapped
 
 
 # --- scoring weights ----------------------------------------------------------

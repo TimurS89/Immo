@@ -29,7 +29,12 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
-from config.luxembourg import HARD_FILTERS, SCORING_WEIGHTS, TARGET_COMMUNES
+from config.luxembourg import (
+    HARD_FILTERS,
+    MAX_PRICE_EUR,
+    SCORING_WEIGHTS,
+    TARGET_COMMUNES,
+)
 from src.lux_monitor.models import ENERGY_CLASSES, Listing
 
 logger = logging.getLogger(__name__)
@@ -58,6 +63,16 @@ class FilterResult:
     reasons: list[str] = field(default_factory=list)
 
 
+def _listing_price(listing: Listing) -> float | None:
+    """The price to compare against the cap: sale price for buy, monthly total
+    (rent + charges, falling back to rent) for rentals."""
+    if listing.listing_type == "buy":
+        return listing.price_eur
+    if listing.rent_total_eur is not None:
+        return listing.rent_total_eur
+    return listing.rent_eur
+
+
 def _effective_rooms(listing: Listing) -> int:
     """Total rooms (pièces). athome rarely reports rooms_total, so when it's
     missing estimate pièces as bedrooms + 1 (a living room): a "3-room" flat is
@@ -84,6 +99,13 @@ def passes_hard_filter(listing: Listing, filters: dict | None = None) -> FilterR
 
     if listing.surface_m2 < f["min_surface_m2"]:
         reasons.append(f"surface {listing.surface_m2:.0f} m² < {f['min_surface_m2']}")
+
+    # Per-type price ceiling (furnished is uncapped). An unknown price passes —
+    # only a price strictly above the cap is rejected.
+    cap = MAX_PRICE_EUR.get(listing.listing_type)
+    price = _listing_price(listing)
+    if cap is not None and price is not None and price > cap:
+        reasons.append(f"price {price:.0f} > {cap} cap for {listing.listing_type}")
 
     return FilterResult(passed=not reasons, reasons=reasons)
 

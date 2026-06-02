@@ -100,9 +100,8 @@ COMMUNE_HKEYS: dict[str, str] = {
 
 
 # --- Hard filters (apply to all three listing categories) ------------------------
-# Deliberately simple: rooms, surface, and commune. Price and commute are NOT
-# knockouts — we store every matching property and let scoring rank them, with
-# commute as a (soft) indicator.
+# Deliberately simple: rooms, surface, commune — plus a per-type price ceiling.
+# Commute is NOT a knockout (soft indicator only); there is no minimum price.
 HARD_FILTERS: dict = {
     "min_rooms": 3,       # pièces if the portal reports them, else bedrooms
     "max_rooms": 8,
@@ -110,7 +109,17 @@ HARD_FILTERS: dict = {
     "communes": list(TARGET_COMMUNES),
 }
 
-# Furnished / long-term rent / buy currently share the same hard criteria.
+# Per-listing-type maximum price (EUR). buy is a sale price; rent is the monthly
+# total; furnished is intentionally uncapped (None). A missing/unknown price never
+# fails the filter — only a price strictly above the cap does.
+MAX_PRICE_EUR: dict = {
+    "buy": 3_000_000,
+    "rent": 6_000,
+    "furnished": None,
+}
+
+# Furnished / long-term rent / buy share the room/surface/commune criteria; the
+# price ceiling differs per type (looked up via MAX_PRICE_EUR in scoring).
 HARD_FILTERS_RENT = HARD_FILTERS
 HARD_FILTERS_BUY = HARD_FILTERS
 
