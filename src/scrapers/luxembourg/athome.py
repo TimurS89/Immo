@@ -14,14 +14,24 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass, field
 
 from pydantic import ValidationError
 
-from config.luxembourg import TARGET_COMMUNES
+from config.luxembourg import COMMUNE_HKEYS, TARGET_COMMUNES
 from src.lux_monitor.schemas import ListingCreate
 from src.scrapers.luxembourg.base import USER_AGENT, LuxBaseScraper
 
 logger = logging.getLogger(__name__)
+
+# How athome encodes each of our three categories as a search. furnished is a
+# rental search with the furnished facet on (?ire=1); rent excludes furnished
+# (?iere=1) so the two don't overlap; buy is a sale search.
+TRANSACTION_PARAMS: dict[str, str] = {
+    "rent": "tr=rent&iere=1",       # long-term rental (exclude furnished)
+    "furnished": "tr=rent&ire=1",   # furnished rental
+    "buy": "tr=buy",                # sale
+}
 
 # immotype.portal_group values that are not homes — skip them.
 NONRESIDENTIAL_GROUPS = {
@@ -51,13 +61,31 @@ def _to_int(value) -> int | None:
         return None
 
 
+@dataclass
+class PageResult:
+    """One SERP page: parsed listings plus athome's own paging counts."""
+
+    listings: list[ListingCreate] = field(default_factory=list)
+    total: int = 0          # total results athome reports for this search
+    total_pages: int = 0    # paginator.totalPages
+    rows_on_page: int = 0    # raw entries in search.list before our parsing
+
+
 class AtHomeScraper(LuxBaseScraper):
     SOURCE_NAME = "athome"
     BASE_URL = "https://www.athome.lu"
 
     def search_url(self, commune: str, listing_type: str, page: int = 1) -> str:
-        tr = "rent" if listing_type == "rent" else "buy"
-        return f"{self.BASE_URL}/srp/?tr={tr}&q={commune}&page={page}"
+        """SERP URL using athome's real location filter (q=<hkey>).
+
+        ``commune`` is a target-commune name; its hkey is looked up in
+        COMMUNE_HKEYS. ``loc=`` is cosmetic (athome ignores it) but kept so the
+        URL is human-readable in logs.
+        """
+        params = TRANSACTION_PARAMS.get(listing_type, TRANSACTION_PARAMS["buy"])
+        hkey = COMMUNE_HKEYS.get(commune, "")
+        slug = commune.lower().replace(" ", "-")
+        return f"{self.BASE_URL}/srp/?{params}&q={hkey}&loc=L7-{slug}&page={page}"
 
     # --- parsing ---------------------------------------------------------------
     @staticmethod
@@ -75,14 +103,25 @@ class AtHomeScraper(LuxBaseScraper):
 
     @classmethod
     def parse_serp(cls, html: str, listing_type: str) -> list[ListingCreate]:
+        """Back-compatible: just the listings from a SERP page."""
+        return cls.parse_serp_page(html, listing_type).listings
+
+    @classmethod
+    def parse_serp_page(cls, html: str, listing_type: str) -> PageResult:
+        """Parse a SERP page into listings + athome's paging counts."""
         state = cls._extract_initial_state(html)
         if not state:
-            return []
+            return PageResult()
         search = state.get("search") or {}
         details = search.get("list") or []
         meta_by_id = {m.get("id"): m for m in (search.get("listings") or [])}
+        paginator = search.get("paginator") or {}
 
-        out: list[ListingCreate] = []
+        result = PageResult(
+            total=_to_int(search.get("total")) or 0,
+            total_pages=_to_int(paginator.get("totalPages")) or 0,
+            rows_on_page=len(details),
+        )
         for entry in details:
             try:
                 listing = cls._build_listing(entry, meta_by_id.get(entry.get("id")), listing_type)
@@ -93,8 +132,8 @@ class AtHomeScraper(LuxBaseScraper):
                 logger.exception("athome: failed to parse entry %s", entry.get("id"))
                 continue
             if listing is not None:
-                out.append(listing)
-        return out
+                result.listings.append(listing)
+        return result
 
     @classmethod
     def _build_listing(cls, entry: dict, meta: dict | None, listing_type: str) -> ListingCreate | None:
@@ -110,7 +149,17 @@ class AtHomeScraper(LuxBaseScraper):
 
         meta = meta or {}
         price = _to_float(entry.get("price")) or _to_float(entry.get("price_min"))
-        if meta.get("isPriceOnDemand") or not price:
+        # Category follows the SEARCH this page came from (listing_type), since the
+        # furnished facet is a search filter and entries don't self-identify as
+        # furnished. Default by the entry's own transaction type if unknown.
+        if listing_type in ("rent", "furnished", "buy"):
+            lt = listing_type
+        else:
+            lt = "buy" if (entry.get("transactionType") or "").lower() == "buy" else "rent"
+        is_sale = lt == "buy"
+        # Rentals must have a price (we score on it); sales are often
+        # "price on request" — keep those (price stays None).
+        if not is_sale and (meta.get("isPriceOnDemand") or not price):
             return None
 
         address = meta.get("address") or {}
@@ -124,13 +173,6 @@ class AtHomeScraper(LuxBaseScraper):
         if not path:
             return None
         url = path if path.startswith("http") else f"{cls.BASE_URL}{path}"
-
-        # Three categories: furnished rental, long-term rental, or sale.
-        txn = (entry.get("transactionType") or listing_type or "").lower()
-        if txn == "rent":
-            lt = "furnished" if entry.get("hasFurnished") == 1 else "rent"
-        else:
-            lt = "buy"
 
         descs = entry.get("descriptions") or {}
         description = descs.get("fr") or descs.get("en") or descs.get("de") or entry.get("description") or ""
@@ -172,8 +214,8 @@ class AtHomeScraper(LuxBaseScraper):
             photos_urls=[],  # we intentionally don't store photos — keep the advert link only
         )
         if lt == "buy":
-            fields["price_eur"] = price
-        else:  # rent or furnished -> a rental price
+            fields["price_eur"] = price  # may be None (price on request)
+        else:  # rent or furnished -> a rental price (guaranteed non-None above)
             fields["rent_eur"] = price
         return ListingCreate(**fields)
 
@@ -186,24 +228,75 @@ class AtHomeScraper(LuxBaseScraper):
                 return name
         return city or None
 
+    # Categories to harvest (each is a distinct athome search).
+    CATEGORIES = ("rent", "furnished", "buy")
+
+    async def _get(self, client, url: str, *, tries: int = 4):
+        """GET with backoff retry (the workstation link can be flaky)."""
+        import asyncio
+
+        import httpx
+
+        delay = 2.0
+        for attempt in range(1, tries + 1):
+            try:
+                return await client.get(url)
+            except httpx.TransportError as exc:
+                if attempt == tries:
+                    self.logger.warning("athome: giving up on %s (%s)", url, type(exc).__name__)
+                    return None
+                self.logger.info("athome: retry %d/%d for %s (%s)", attempt, tries, url, type(exc).__name__)
+                await asyncio.sleep(delay)
+                delay *= 2
+        return None
+
     async def scrape(self) -> list[ListingCreate]:
-        """Live scrape (workstation): httpx SERP per commune + listing type."""
+        """Live scrape: every category × target commune, server-side filtered by
+        the commune hkey and paginated fully. Logs a funnel line per commune so a
+        thin harvest is immediately diagnosable.
+        """
         import httpx
 
         results: list[ListingCreate] = []
         headers = {"User-Agent": USER_AGENT, "Accept-Language": "fr-LU,fr;q=0.9"}
-        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=30) as client:
-            for listing_type in ("rent", "buy"):
+        # hard ceiling per (category, commune) so a bad filter can't run away.
+        max_pages = max(1, min(self.max_pages, 50))
+
+        timeout = httpx.Timeout(60.0, connect=15.0)
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout) as client:
+            for category in self.CATEGORIES:
                 for commune in self.communes():
-                    for page in range(1, self.max_pages + 1):
-                        url = self.search_url(commune, listing_type, page)
-                        self.logger.info("GET %s", url)
-                        resp = await client.get(url)
-                        if resp.status_code != 200:
+                    if commune not in COMMUNE_HKEYS:
+                        self.logger.warning("athome: no hkey for %r — skipping", commune)
+                        continue
+                    kept = fetched_rows = reported_total = 0
+                    pages_seen = 0
+                    page = 1
+                    while page <= max_pages:
+                        url = self.search_url(commune, category, page)
+                        resp = await self._get(client, url)
+                        if resp is None or resp.status_code != 200:
+                            if page == 1:
+                                self.logger.warning(
+                                    "athome: %s/%s page 1 -> %s", category, commune,
+                                    "no response" if resp is None else resp.status_code,
+                                )
                             break
-                        page_listings = self.parse_serp(resp.text, listing_type)
-                        if not page_listings:
+                        pr = self.parse_serp_page(resp.text, category)
+                        reported_total = pr.total
+                        fetched_rows += pr.rows_on_page
+                        results.extend(pr.listings)
+                        kept += len(pr.listings)
+                        pages_seen += 1
+                        last_page = min(pr.total_pages or 1, max_pages)
+                        if pr.rows_on_page == 0 or page >= last_page:
                             break
-                        results.extend(page_listings)
+                        page += 1
                         await self.random_delay()
+                    # Funnel line: what athome had vs. what we parsed.
+                    self.logger.info(
+                        "athome funnel %-9s %-12s total=%-5s pages=%-2d rows=%-4d kept=%d",
+                        category, commune, reported_total, pages_seen, fetched_rows, kept,
+                    )
+        self.logger.info("athome: %d listings parsed across all searches", len(results))
         return results

@@ -82,6 +82,22 @@ PRIMARY_COMMUNES: tuple[str, ...] = tuple(
     name for name, meta in TARGET_COMMUNES.items() if meta["primary"]
 )
 
+# athome.lu commune-level location-filter tokens ("hkey"), captured from the
+# site's resolved search URLs (the ``q=<hkey>`` parameter — ``loc=`` alone is
+# ignored). These are stable, transaction-independent geographic IDs (the same
+# token filters rent, buy and furnished). The scraper logs the per-commune result
+# count, so if athome ever rebuilds its geo index a stale token shows up as
+# total=0 and we re-capture it.
+COMMUNE_HKEYS: dict[str, str] = {
+    "Luxembourg":  "d8380e34",
+    "Strassen":    "e7677861",
+    "Bertrange":   "4d6066a8",
+    "Mamer":       "a8916871",
+    "Walferdange": "a2e51548",
+    "Hesperange":  "7d5d258f",
+    "Leudelange":  "1b11c8fe",
+}
+
 
 # --- Hard filters (apply to all three listing categories) ------------------------
 # Deliberately simple: rooms, surface, and commune. Price and commute are NOT

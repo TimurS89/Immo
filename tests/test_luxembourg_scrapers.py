@@ -28,7 +28,7 @@ def _by_id(listings, ext_id):
 
 def test_athome_parse():
     listings = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "rent")
-    # 4 entries: 2 residential pass; office + price-on-demand are dropped.
+    # rent search: 2 residential pass; office + rental-price-on-demand dropped.
     assert len(listings) == 2
 
     a = _by_id(listings, "1001")
@@ -45,16 +45,41 @@ def test_athome_parse():
 
     b = _by_id(listings, "1002")  # commune from address.district, not cityName
     assert b.commune == "Luxembourg" and b.postcode == "2551"
-    assert b.listing_type == "furnished"  # hasFurnished=1 -> furnished category
+    assert b.listing_type == "rent"  # category follows the SEARCH, not a field
     assert b.bedrooms == 4 and b.surface_m2 == 120 and b.rent_eur == 2800
     assert b.floor == 2 and b.has_elevator is True
     assert b.has_garden is False and b.has_garage is False and b.parking_spaces == 1
 
 
-def test_athome_skips_nonresidential_and_price_on_demand():
+def test_athome_category_follows_search():
+    # The SAME fixture parsed as a furnished search -> furnished listings.
+    furn = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "furnished")
+    assert {x.listing_type for x in furn} == {"furnished"}
+
+
+def test_athome_skips_nonresidential():
     ids = {x.portal_listing_id for x in AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "rent")}
     assert "1003" not in ids  # office (non-residential portal_group)
-    assert "1004" not in ids  # price on demand
+    assert "1004" not in ids  # rental price-on-demand dropped (it's a rent search)
+
+
+def test_athome_sale_keeps_price_on_request():
+    # Same entry 1004 (price 0 / on-demand) is KEPT when parsed as a buy search.
+    buys = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "buy")
+    by_id = {x.portal_listing_id: x for x in buys}
+    assert "1004" in by_id
+    assert by_id["1004"].listing_type == "buy" and by_id["1004"].price_eur is None
+
+
+def test_athome_parse_serp_page_counts():
+    pr = AtHomeScraper.parse_serp_page(_load("athome_serp_rent.html"), "rent")
+    assert pr.total == 1234 and pr.total_pages == 62  # from the fixture's paginator
+    assert pr.rows_on_page == 4 and len(pr.listings) == 2
+
+
+def test_athome_search_url_uses_hkey():
+    url = AtHomeScraper(AppConfig()).search_url("Strassen", "rent", 2)
+    assert "q=e7677861" in url and "tr=rent" in url and "page=2" in url
 
 
 # --- immotop (EN/FR, comma-thousands gotcha) ----------------------------------
