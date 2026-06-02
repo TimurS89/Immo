@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 
 from config.luxembourg import (
+    BED_BEST,
     HARD_FILTERS,
     MAX_PRICE_EUR,
     SCORING_WEIGHTS,
@@ -143,6 +144,11 @@ def score_listing(listing: Listing, filters: dict | None = None) -> ScoreBreakdo
 
     # name -> (displayed raw value, normalized subscore 0..1 or None=unknown)
     raw: dict[str, tuple[object, float | None]] = {
+        "bedrooms": (
+            listing.bedrooms,
+            None if not listing.bedrooms
+            else _clip01((listing.bedrooms - 1) / (BED_BEST - 1)),
+        ),
         "drive_time": (listing.drive_time_rush_min, _lower_is_better(listing.drive_time_rush_min, DRIVE_NORM_MAX)),
         "pt_time": (listing.pt_time_rush_min, _lower_is_better(listing.pt_time_rush_min, PT_NORM_MAX)),
         "foreign_pct": (

@@ -125,14 +125,19 @@ HARD_FILTERS_BUY = HARD_FILTERS
 
 # --- Soft scoring weights (post-filter ranking; must sum to 100) -----------------
 SCORING_WEIGHTS: dict = {
-    "drive_time": 25,        # approximate car commute to the office (indicator)
-    "pt_time": 20,           # approximate public-transport commute (indicator)
-    "foreign_pct": 15,       # expat-friendliness of the commune
-    "energy_class": 10,
-    "has_garage": 8,
-    "has_garden": 8,
-    "llm_quality_score": 14,  # description quality (heuristic flags/highlights)
+    "bedrooms": 18,          # family size — more bedrooms ranks higher
+    "drive_time": 20,        # approximate car commute to the office (indicator)
+    "pt_time": 15,           # approximate public-transport commute (indicator)
+    "foreign_pct": 13,       # expat-friendliness of the commune
+    "energy_class": 8,
+    "has_garage": 7,
+    "has_garden": 7,
+    "llm_quality_score": 12,  # description quality (heuristic flags/highlights)
 }
+
+# Bedroom subscore band: BED_BEST bedrooms (or more) -> 1.0; 1 bedroom -> 0.0.
+# Tuned for a family search so 4-bed clearly outranks 2-bed.
+BED_BEST = 4
 
 
 def lu_country_config():

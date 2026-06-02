@@ -267,8 +267,9 @@ class AtHomeScraper(LuxBaseScraper):
 
         results: list[ListingCreate] = []
         headers = {"User-Agent": USER_AGENT, "Accept-Language": "fr-LU,fr;q=0.9"}
-        # hard ceiling per (category, commune) so a bad filter can't run away.
-        max_pages = max(1, min(self.max_pages, 50))
+        # hard ceiling per (category, commune) so a bad filter can't run away,
+        # but high enough to fully paginate the capital (~210 pages of rentals).
+        max_pages = max(1, min(self.max_pages, 300))
 
         timeout = httpx.Timeout(60.0, connect=15.0)
         async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout) as client:

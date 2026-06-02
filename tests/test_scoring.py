@@ -121,6 +121,15 @@ def test_strong_beats_weak():
     assert strong.total > weak.total and strong.total > 70
 
 
+def test_more_bedrooms_scores_higher():
+    # everything else equal, a 4-bed must outrank a 2-bed (family preference)
+    four = score_listing(_orm(bedrooms=4))
+    two = score_listing(_orm(bedrooms=2))
+    assert four.total > two.total
+    assert four.parts["bedrooms"]["score"] == 1.0   # >= BED_BEST -> full
+    assert two.parts["bedrooms"]["score"] < 1.0
+
+
 def test_drive_monotonic_in_score():
     near = score_listing(_orm(drive=8)).parts["drive_time"]["score"]
     far = score_listing(_orm(drive=40)).parts["drive_time"]["score"]

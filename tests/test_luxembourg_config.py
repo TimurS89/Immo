@@ -59,7 +59,7 @@ def test_price_caps():
 
 def test_scoring_weights():
     expected_keys = {
-        "drive_time", "pt_time", "foreign_pct", "energy_class",
+        "bedrooms", "drive_time", "pt_time", "foreign_pct", "energy_class",
         "has_garage", "has_garden", "llm_quality_score",
     }
     assert set(SCORING_WEIGHTS) == expected_keys

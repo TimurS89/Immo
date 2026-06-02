@@ -106,7 +106,10 @@ class CountryConfig(BaseModel):
 class ScrapersConfig(BaseModel):
     # NOTE: per-country/source enablement now lives in CountryConfig.portals.
     request_delay_seconds: list[int] = Field(default_factory=lambda: [3, 8])
-    max_pages_per_source: int = 20
+    # High enough to fully paginate the largest commune (Luxembourg City has
+    # ~4k rentals ≈ 210 pages). Small communes stop early at their own total, so
+    # this only deepens the big ones. See athome scraper's per-search ceiling.
+    max_pages_per_source: int = 250
     headless: bool = True
     captcha_service: str | None = None
 
