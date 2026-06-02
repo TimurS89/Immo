@@ -37,6 +37,7 @@ async def run_luxembourg(
     commute: bool = True,
     analyze: bool = True,
     score: bool = True,
+    snapshot: bool = True,
 ) -> dict:
     """Scrape all enabled LU portals, persist, de-dup, estimate commutes,
     analyze descriptions, and score.
@@ -52,6 +53,7 @@ async def run_luxembourg(
     from src.lux_monitor.commute import populate_commute_times
     from src.lux_monitor.dedup import mark_duplicates
     from src.lux_monitor.scoring import apply_scores, passes_hard_filter, prune_nonmatching
+    from src.lux_monitor.snapshots import record_snapshot
 
     lu = config.search_areas.get("LU")
     enabled = lu.enabled_portals() if (lu and lu.enabled) else list(LU_SCRAPERS)
@@ -96,4 +98,7 @@ async def run_luxembourg(
         totals["analyzed"] = apply_analysis(session)
     if score:
         totals.update(apply_scores(session))
+    if snapshot:
+        # Record today's market aggregates (long-run trend layer).
+        totals["snapshot_segments"] = record_snapshot(session)
     return totals

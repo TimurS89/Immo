@@ -60,6 +60,28 @@ def load_rows() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=120)
+def load_snapshots() -> pd.DataFrame:
+    from src.lux_monitor.models import MarketSnapshot
+
+    with session_scope(get_engine()) as session:
+        rows = session.query(MarketSnapshot).all()
+        recs = [
+            {
+                "date": r.snapshot_date.date(),
+                "type": r.listing_type,
+                "commune": r.commune,
+                "count": r.count,
+                "median €": r.median_price_eur,
+                "median €/m²": r.median_price_per_m2_eur,
+                "median m²": r.median_surface_m2,
+                "new": r.new_count,
+            }
+            for r in rows
+        ]
+    return pd.DataFrame(recs)
+
+
+@st.cache_data(ttl=120)
 def load_price_drops() -> pd.DataFrame:
     from src.lux_monitor.digest import price_drops
 
@@ -154,5 +176,41 @@ else:
             "Δ%": st.column_config.NumberColumn("Δ%", format="%.1f%%"),
             "score": st.column_config.NumberColumn("score", format="%.1f"),
         },
+    )
+
+# --- market trends over time (the rent-vs-buy / now-vs-later view) ---
+st.subheader("📈 Market trends over time")
+snaps = load_snapshots()
+if snaps.empty:
+    st.caption("No snapshots yet — they accumulate one point per run. Come back after a few daily runs.")
+else:
+    tcol, ccol, mcol = st.columns(3)
+    t_opts = sorted(snaps["type"].unique())
+    t_sel = tcol.selectbox("Type", t_opts, key="trend_type")
+    communes_for_type = sorted(snaps[snaps["type"] == t_sel]["commune"].unique())
+    default_commune = "All" if "All" in communes_for_type else communes_for_type[0]
+    c_sel = ccol.selectbox("Commune", communes_for_type,
+                           index=communes_for_type.index(default_commune), key="trend_commune")
+    metric = mcol.selectbox(
+        "Metric", ["median €", "median €/m²", "count", "new", "median m²"], key="trend_metric")
+
+    series = (
+        snaps[(snaps["type"] == t_sel) & (snaps["commune"] == c_sel)]
+        .sort_values("date")
+        .set_index("date")
+    )
+    if len(series) < 2:
+        st.info(f"Only {len(series)} snapshot so far for this segment — the line appears once there are ≥2 daily runs.")
+    st.line_chart(series[metric], height=320)
+    latest = series.iloc[-1]
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Listings now", int(latest["count"]))
+    if pd.notna(latest["median €"]):
+        k2.metric("Median price", f"€{latest['median €']:,.0f}")
+    if pd.notna(latest["median €/m²"]):
+        k3.metric("Median €/m²", f"€{latest['median €/m²']:,.0f}")
+    st.caption(
+        "Each point is one run. Compare buy €/m² vs rent over months to judge whether to "
+        "buy or rent, now or later. Snapshots are recorded automatically every run."
     )
 

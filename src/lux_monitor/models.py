@@ -225,3 +225,41 @@ class PriceHistoryEntry(Base):
             f"<PriceHistoryEntry listing_id={self.listing_id} "
             f"price_eur={self.price_eur} at={self.recorded_at!r}>"
         )
+
+
+class MarketSnapshot(Base):
+    """A daily market aggregate per (date, listing_type, commune).
+
+    Per-listing price history only lives as long as a listing is online (weeks to
+    months), so it can't show how the *market* moves over a year. This table
+    records one row per run per segment — counts and price/m² medians — building
+    the long-run trend that informs a rent-vs-buy / now-vs-later decision.
+    Computed over active, non-duplicate, filter-passing listings.
+    """
+
+    __tablename__ = "market_snapshots_lu"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    snapshot_date: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    listing_type: Mapped[str] = mapped_column(String(16), nullable=False)  # furnished|rent|buy
+    commune: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Price = sale price for buy, monthly total for rent/furnished.
+    median_price_eur: Mapped[float | None] = mapped_column(Float)
+    mean_price_eur: Mapped[float | None] = mapped_column(Float)
+    median_price_per_m2_eur: Mapped[float | None] = mapped_column(Float)
+    median_surface_m2: Mapped[float | None] = mapped_column(Float)
+    new_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # first seen since last snapshot
+
+    __table_args__ = (
+        UniqueConstraint("snapshot_date", "listing_type", "commune", name="uq_snapshot_segment"),
+        Index("ix_snapshot_type_commune", "listing_type", "commune"),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return (
+            f"<MarketSnapshot {self.snapshot_date:%Y-%m-%d} {self.listing_type} "
+            f"{self.commune} n={self.count} median={self.median_price_eur}>"
+        )
+
