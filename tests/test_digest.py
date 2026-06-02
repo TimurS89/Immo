@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from src.lux_monitor.digest import new_listings, price_drops
+from src.lux_monitor.digest import (
+    days_on_market,
+    long_on_market,
+    new_listings,
+    price_drops,
+)
 from src.lux_monitor.schemas import ListingCreate
 
 
@@ -78,3 +83,28 @@ def test_price_drop_outside_window_ignored(lux_session):
     lux_session.commit()
 
     assert price_drops(lux_session, days=30) == []  # drop is older than the window
+
+
+def test_days_on_market_active(lux_session):
+    fresh = _mk("a", first_seen_at=_naive_utc_days_ago(10))
+    # active -> now - first_seen (allow boundary: micros elapse -> 9 or 10)
+    assert days_on_market(fresh) in (9, 10)
+
+
+def test_days_on_market_delisted(lux_session):
+    gone = _mk("g")
+    gone.first_seen_at = _naive_utc_days_ago(40)
+    gone.last_seen_at = _naive_utc_days_ago(15)
+    gone.is_active = False
+    assert days_on_market(gone) == 25  # delisted -> lifetime (last - first)
+
+
+def test_long_on_market(lux_session):
+    old = _mk("old", first_seen_at=_naive_utc_days_ago(90))
+    recent = _mk("recent", first_seen_at=_naive_utc_days_ago(20))
+    lux_session.add_all([old, recent])
+    lux_session.commit()
+
+    rows = long_on_market(lux_session, min_days=60)
+    assert [l.portal_listing_id for l, _ in rows] == ["old"]
+    assert rows[0][1] >= 90  # days value returned

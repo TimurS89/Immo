@@ -26,6 +26,8 @@ st.set_page_config(page_title="LU Property Monitor", page_icon="🏠", layout="w
 
 @st.cache_data(ttl=120)
 def load_rows() -> pd.DataFrame:
+    from src.lux_monitor.digest import days_on_market
+
     with session_scope(get_engine()) as session:
         listings = (
             session.query(Listing)
@@ -44,6 +46,7 @@ def load_rows() -> pd.DataFrame:
                     "bd": l.bedrooms,
                     "m²": l.surface_m2,
                     "€": price,
+                    "days": days_on_market(l),
                     "drive": l.drive_time_rush_min,
                     "PT": l.pt_time_rush_min,
                     "energy": l.energy_class,
@@ -119,7 +122,7 @@ all_communes = sorted(df["commune"].dropna().unique())
 types = st.sidebar.multiselect("Type", all_types, default=all_types)
 communes = st.sidebar.multiselect("Commune", all_communes, default=all_communes)
 min_score = st.sidebar.slider("Min score", 0, 100, 0)
-sort_by = st.sidebar.selectbox("Sort by", ["score", "€", "first seen", "drive", "PT", "m²"])
+sort_by = st.sidebar.selectbox("Sort by", ["score", "€", "days", "first seen", "drive", "PT", "m²"])
 ascending = st.sidebar.toggle("Ascending", value=False)
 st.sidebar.divider()
 new_only = st.sidebar.toggle("🆕 New only", value=False)
@@ -210,7 +213,47 @@ else:
     if pd.notna(latest["median €/m²"]):
         k3.metric("Median €/m²", f"€{latest['median €/m²']:,.0f}")
     st.caption(
-        "Each point is one run. Compare buy €/m² vs rent over months to judge whether to "
-        "buy or rent, now or later. Snapshots are recorded automatically every run."
+        "Each point is one run. Snapshots are recorded automatically every run."
+    )
+
+    # Compare the SAME metric across types (rent vs furnished vs buy) for a commune.
+    st.markdown("**Compare across types** (same commune & metric)")
+    cmp_metric = "median €/m²"
+    cmp_communes = sorted(snaps["commune"].unique())
+    cmp_default = "All" if "All" in cmp_communes else cmp_communes[0]
+    cmp_commune = st.selectbox("Commune", cmp_communes,
+                               index=cmp_communes.index(cmp_default), key="cmp_commune")
+    wide = (
+        snaps[snaps["commune"] == cmp_commune]
+        .pivot_table(index="date", columns="type", values=cmp_metric, aggfunc="last")
+        .sort_index()
+    )
+    if len(wide) < 2:
+        st.info("The comparison line fills in once there are ≥2 daily runs.")
+    st.line_chart(wide, height=320)
+    st.caption(
+        f"{cmp_metric} by type in **{cmp_commune}** over time — buy €/m² vs rent €/m² is the "
+        "core rent-vs-buy signal. (Rent €/m² is monthly; buy €/m² is the purchase price.)"
+    )
+
+# --- slow movers (days on market) -------------------------------------------
+st.subheader("🐌 Long on the market (possible negotiation room)")
+dom_min = st.slider("Online at least … days", 30, 180, 60, step=10)
+slow = df[df["days"].notna() & (df["days"] >= dom_min)].sort_values("days", ascending=False)
+if slow.empty:
+    st.caption(f"No active listings have been online ≥ {dom_min} days yet "
+               "(needs history to accrue — listings get their 'days' from when we first saw them).")
+else:
+    st.caption(f"{len(slow)} listing(s) online ≥ {dom_min} days — long-sitting adverts are "
+               "more often open to a lower offer.")
+    st.dataframe(
+        slow[["days", "score", "type", "commune", "bd", "m²", "€", "link"]].head(50),
+        hide_index=True, use_container_width=True,
+        column_config={
+            "link": st.column_config.LinkColumn("link", display_text="open ↗"),
+            "€": st.column_config.NumberColumn("€", format="%d"),
+            "m²": st.column_config.NumberColumn("m²", format="%d"),
+            "score": st.column_config.NumberColumn("score", format="%.1f"),
+        },
     )
 

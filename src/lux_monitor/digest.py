@@ -40,6 +40,48 @@ def new_listings(session: Session, *, days: int = 7, scored_only: bool = True) -
     return query.order_by(Listing.score_total.desc()).all()
 
 
+def days_on_market(listing: Listing, *, now: datetime | None = None) -> int | None:
+    """How long a listing has been (or was) online, in whole days.
+
+    For an active listing: now - first_seen. For a delisted one: last_seen -
+    first_seen (its lifetime). A long time on market is a buyer's signal — the
+    price is often negotiable. Returns None if first_seen is missing.
+    """
+    if not listing.first_seen_at:
+        return None
+    start = _as_naive_utc(listing.first_seen_at)
+    # Delisted only when explicitly inactive AND we have a last_seen to bound the
+    # lifetime; otherwise measure to now (is_active defaults to None pre-flush).
+    if listing.is_active is False and listing.last_seen_at is not None:
+        end = _as_naive_utc(listing.last_seen_at)
+    else:
+        end = _as_naive_utc(now) if now else datetime.now(timezone.utc).replace(tzinfo=None)
+    return max(0, (end - start).days)
+
+
+def long_on_market(
+    session: Session, *, min_days: int = 60, scored_only: bool = True, now: datetime | None = None
+) -> list[tuple[Listing, int]]:
+    """Active, non-duplicate listings online for at least ``min_days``.
+
+    Sorted longest-first. Returns (listing, days) pairs — these are the
+    slow-movers worth a lower offer.
+    """
+    query = session.query(Listing).filter(
+        Listing.is_active.is_(True), Listing.duplicate_of_id.is_(None)
+    )
+    if scored_only:
+        query = query.filter(Listing.score_total.isnot(None))
+
+    out: list[tuple[Listing, int]] = []
+    for listing in query.all():
+        dom = days_on_market(listing, now=now)
+        if dom is not None and dom >= min_days:
+            out.append((listing, dom))
+    out.sort(key=lambda pair: pair[1], reverse=True)
+    return out
+
+
 @dataclass
 class PriceDrop:
     listing: Listing

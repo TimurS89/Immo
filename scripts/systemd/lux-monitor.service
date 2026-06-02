@@ -1,0 +1,14 @@
+[Unit]
+Description=Luxembourg property monitor — one harvest+score run
+Documentation=https://github.com/timurs89/immo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Edit this if your clone is elsewhere:
+WorkingDirectory=%h/immo
+ExecStart=%h/immo/scripts/run_lux.sh
+# Don't pile up runs if one is slow:
+TimeoutStartSec=1800
+Nice=10
