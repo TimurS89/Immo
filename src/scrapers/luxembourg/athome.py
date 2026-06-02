@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 
 from pydantic import ValidationError
 
-from config.luxembourg import COMMUNE_HKEYS, TARGET_COMMUNES
+from config.luxembourg import COMMUNE_HKEYS, HARD_FILTERS, TARGET_COMMUNES
 from src.lux_monitor.schemas import ListingCreate
 from src.scrapers.luxembourg.base import USER_AGENT, LuxBaseScraper
 
@@ -87,11 +87,22 @@ class AtHomeScraper(LuxBaseScraper):
         ``commune`` is a target-commune name; its hkey is looked up in
         COMMUNE_HKEYS. ``loc=`` is cosmetic (athome ignores it) but kept so the
         URL is human-readable in logs.
+        Surface and bedroom minimums are pushed SERVER-SIDE via athome's
+        ``srf_min`` / ``bedrooms_min`` params (derived from HARD_FILTERS), so a
+        commune returns only qualifying listings instead of its whole inventory —
+        a few dozen pages for the capital instead of ~200. The local hard filter
+        still runs (belt-and-suspenders), so a param change can't leak rejects.
         """
         params = TRANSACTION_PARAMS.get(listing_type, TRANSACTION_PARAMS["buy"])
         hkey = COMMUNE_HKEYS.get(commune, "")
         slug = commune.lower().replace(" ", "-")
-        return f"{self.BASE_URL}/srp/?{params}&q={hkey}&loc=L7-{slug}&page={page}"
+        # min bedrooms = rooms floor - 1 (a "3-pièce" flat is 2 bedrooms + living)
+        bedrooms_min = max(0, int(HARD_FILTERS["min_rooms"]) - 1)
+        srf_min = int(HARD_FILTERS["min_surface_m2"])
+        return (
+            f"{self.BASE_URL}/srp/?{params}&q={hkey}&loc=L7-{slug}"
+            f"&bedrooms_min={bedrooms_min}&srf_min={srf_min}&page={page}"
+        )
 
     # --- parsing ---------------------------------------------------------------
     @staticmethod
