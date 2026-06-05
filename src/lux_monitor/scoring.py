@@ -30,8 +30,9 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 
 from config.luxembourg import (
-    HARD_FILTERS_BUY,
-    HARD_FILTERS_RENT,
+    BED_BEST,
+    HARD_FILTERS,
+    MAX_PRICE_EUR,
     SCORING_WEIGHTS,
     TARGET_COMMUNES,
 )
@@ -41,9 +42,10 @@ logger = logging.getLogger(__name__)
 
 NEUTRAL = 0.5  # subscore for missing/unknown inputs
 
-# Walk-time normalization band (minutes): <=BEST -> 1.0, >=WORST -> 0.0.
-WALK_BEST_MIN = 5
-WALK_WORST_MIN = 20
+# Commute normalization (minutes): 0 -> 1.0, >= MAX -> 0.0. The commute is an
+# indicator (not a hard filter), so these are just the good/bad anchors.
+DRIVE_NORM_MAX = 45
+PT_NORM_MAX = 75
 
 # foreign_pct normalization band (%): <=LO -> 0.0, >=HI -> 1.0.
 FOREIGN_LO, FOREIGN_HI = 30, 65
@@ -53,13 +55,8 @@ def _clip01(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
-def filters_for(listing_type: str) -> dict:
-    """The hard-filter dict for a listing type (buy -> BUY, else RENT)."""
-    return HARD_FILTERS_BUY if listing_type == "buy" else HARD_FILTERS_RENT
-
-
 # --------------------------------------------------------------------------- #
-# Stage 1: hard filter
+# Stage 1: hard filter — commune, room count, surface (no price/commute caps)
 # --------------------------------------------------------------------------- #
 @dataclass
 class FilterResult:
@@ -67,47 +64,49 @@ class FilterResult:
     reasons: list[str] = field(default_factory=list)
 
 
-def _price_value(listing: Listing) -> float | None:
+def _listing_price(listing: Listing) -> float | None:
+    """The price to compare against the cap: sale price for buy, monthly total
+    (rent + charges, falling back to rent) for rentals."""
     if listing.listing_type == "buy":
         return listing.price_eur
-    # Rent is compared on total (rent + charges); fall back to base rent.
-    return listing.rent_total_eur if listing.rent_total_eur is not None else listing.rent_eur
+    if listing.rent_total_eur is not None:
+        return listing.rent_total_eur
+    return listing.rent_eur
+
+
+def _effective_rooms(listing: Listing) -> int:
+    """Total rooms (pièces). athome rarely reports rooms_total, so when it's
+    missing estimate pièces as bedrooms + 1 (a living room): a "3-room" flat is
+    2 bedrooms + living. This matches how LU listings advertise "X pièces" and
+    keeps "min 3 rooms" from silently meaning "min 3 bedrooms"."""
+    if listing.rooms_total:
+        return listing.rooms_total
+    if listing.bedrooms:
+        return listing.bedrooms + 1
+    return listing.bedrooms
 
 
 def passes_hard_filter(listing: Listing, filters: dict | None = None) -> FilterResult:
-    """Apply the non-negotiable knockouts; collect reasons for any failure."""
-    f = filters or filters_for(listing.listing_type)
+    """Apply the (deliberately small) knockouts; collect reasons for any failure."""
+    f = filters or HARD_FILTERS
     reasons: list[str] = []
 
     if listing.commune not in f["communes"]:
         reasons.append(f"commune {listing.commune!r} not in target set")
-    if listing.bedrooms < f["min_bedrooms"]:
-        reasons.append(f"bedrooms {listing.bedrooms} < {f['min_bedrooms']}")
+
+    rooms = _effective_rooms(listing)
+    if rooms is None or not (f["min_rooms"] <= rooms <= f["max_rooms"]):
+        reasons.append(f"rooms {rooms} outside [{f['min_rooms']}, {f['max_rooms']}]")
+
     if listing.surface_m2 < f["min_surface_m2"]:
-        reasons.append(f"surface {listing.surface_m2:.0f} < {f['min_surface_m2']}")
+        reasons.append(f"surface {listing.surface_m2:.0f} m² < {f['min_surface_m2']}")
 
-    value = _price_value(listing)
-    if listing.listing_type == "buy":
-        lo, hi, label = f["min_price_eur"], f["max_price_eur"], "price"
-    else:
-        lo, hi, label = f["min_rent_total_eur"], f["max_rent_total_eur"], "rent_total"
-    if value is None:
-        reasons.append(f"{label} unknown")
-    elif not (lo <= value <= hi):
-        reasons.append(f"{label} {value:.0f} outside [{lo}, {hi}]")
-
-    # Commute: OK if EITHER mode is within its own cap.
-    drive, pt = listing.drive_time_rush_min, listing.pt_time_rush_min
-    drive_ok = drive is not None and drive <= f["max_drive_time_rush_min"]
-    pt_ok = pt is not None and pt <= f["max_pt_time_rush_min"]
-    if not (drive_ok or pt_ok):
-        if drive is None and pt is None:
-            reasons.append("commute not computed")
-        else:
-            reasons.append(
-                f"commute too long (drive {drive} > {f['max_drive_time_rush_min']} "
-                f"and PT {pt} > {f['max_pt_time_rush_min']})"
-            )
+    # Per-type price ceiling (furnished is uncapped). An unknown price passes —
+    # only a price strictly above the cap is rejected.
+    cap = MAX_PRICE_EUR.get(listing.listing_type)
+    price = _listing_price(listing)
+    if cap is not None and price is not None and price > cap:
+        reasons.append(f"price {price:.0f} > {cap} cap for {listing.listing_type}")
 
     return FilterResult(passed=not reasons, reasons=reasons)
 
@@ -125,12 +124,6 @@ def _energy_subscore(energy_class: str | None) -> float | None:
     return 1.0 - idx / (len(ENERGY_CLASSES) - 1)
 
 
-def _walk_subscore(minutes: int | None) -> float | None:
-    if minutes is None:
-        return None
-    return _clip01((WALK_WORST_MIN - minutes) / (WALK_WORST_MIN - WALK_BEST_MIN))
-
-
 def _lower_is_better(value: int | None, cap: int) -> float | None:
     if value is None:
         return None
@@ -145,36 +138,27 @@ class ScoreBreakdown:
 
 def score_listing(listing: Listing, filters: dict | None = None) -> ScoreBreakdown:
     """Weighted 0–100 score with a per-subscore breakdown (pure; no DB write)."""
-    f = filters or filters_for(listing.listing_type)
     commune_meta = TARGET_COMMUNES.get(listing.commune, {})
     foreign_pct = commune_meta.get("foreign_pct")
     llm = listing.llm_quality_score
 
     # name -> (displayed raw value, normalized subscore 0..1 or None=unknown)
     raw: dict[str, tuple[object, float | None]] = {
-        "drive_time": (
-            listing.drive_time_rush_min,
-            _lower_is_better(listing.drive_time_rush_min, f["max_drive_time_rush_min"]),
+        "bedrooms": (
+            listing.bedrooms,
+            None if not listing.bedrooms
+            else _clip01((listing.bedrooms - 1) / (BED_BEST - 1)),
         ),
-        "pt_time": (
-            listing.pt_time_rush_min,
-            _lower_is_better(listing.pt_time_rush_min, f["max_pt_time_rush_min"]),
-        ),
+        "drive_time": (listing.drive_time_rush_min, _lower_is_better(listing.drive_time_rush_min, DRIVE_NORM_MAX)),
+        "pt_time": (listing.pt_time_rush_min, _lower_is_better(listing.pt_time_rush_min, PT_NORM_MAX)),
         "foreign_pct": (
             foreign_pct,
             None if foreign_pct is None
             else _clip01((foreign_pct - FOREIGN_LO) / (FOREIGN_HI - FOREIGN_LO)),
         ),
-        "school_walking_distance": (listing.walk_to_school_min, _walk_subscore(listing.walk_to_school_min)),
-        "creche_walking_distance": (listing.walk_to_creche_min, _walk_subscore(listing.walk_to_creche_min)),
-        "park_walking_distance": (listing.walk_to_park_min, _walk_subscore(listing.walk_to_park_min)),
         "energy_class": (listing.energy_class, _energy_subscore(listing.energy_class)),
         "has_garage": (listing.has_garage, 1.0 if listing.has_garage else 0.0),
         "has_garden": (listing.has_garden, 1.0 if listing.has_garden else 0.0),
-        "ground_floor_with_garden": (
-            (listing.floor, listing.has_garden),
-            1.0 if (listing.floor == 0 and listing.has_garden) else 0.0,
-        ),
         "llm_quality_score": (llm, None if llm is None else _clip01(llm / 100)),
     }
 
@@ -193,6 +177,27 @@ def score_listing(listing: Listing, filters: dict | None = None) -> ScoreBreakdo
             "points": round(points, 2),
         }
     return ScoreBreakdown(total=round(total, 1), parts=parts)
+
+
+def prune_nonmatching(session: Session) -> int:
+    """Deactivate already-stored listings that no longer pass the hard filter.
+
+    Retroactively applies the current filters (commune / rooms / surface / price
+    cap) to the existing DB — so tightening a filter trims stale rows on the next
+    run without a full re-scrape. Deactivates (is_active=False) rather than
+    deleting, so it's reversible and keeps price history. Returns the count
+    deactivated.
+    """
+    active = session.query(Listing).filter(Listing.is_active.is_(True)).all()
+    pruned = 0
+    for listing in active:
+        if not passes_hard_filter(listing).passed:
+            listing.mark_inactive()
+            pruned += 1
+    session.commit()
+    if pruned:
+        logger.info("prune_nonmatching: deactivated %d listing(s) now outside the filters", pruned)
+    return pruned
 
 
 def apply_scores(session: Session, *, only_active: bool = True) -> dict[str, int]:

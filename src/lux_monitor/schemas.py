@@ -153,12 +153,9 @@ class ListingRead(ListingBase):
 
     id: int
 
-    # Computed (routing/walkability)
+    # Computed (commute)
     drive_time_rush_min: int | None = None
     pt_time_rush_min: int | None = None
-    walk_to_school_min: int | None = None
-    walk_to_creche_min: int | None = None
-    walk_to_park_min: int | None = None
 
     # LLM analysis
     llm_quality_score: int | None = None

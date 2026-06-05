@@ -1,5 +1,9 @@
 # Property Search Automation - Implementation Plan
 
+> ⚠️ **LEGACY / HISTORICAL.** Describes the original Germany/France tool. The
+> project was retargeted to **Luxembourg** — see `README.md` and
+> `SESSION_HANDOFF.md` for the current system. Kept for reference only.
+
 ## Overview
 Automated Python tool for personal property search in **Baden-Baden, Germany** and **Alsace (Bas-Rhin 67 + Haut-Rhin 68), France**. Runs weekly, produces comprehensive reports (HTML email + PDF + local web dashboard), tracks price trends over time.
 

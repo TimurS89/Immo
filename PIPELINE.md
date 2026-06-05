@@ -1,5 +1,9 @@
 # Immo Property Search Automation — Pipeline Guide
 
+> ⚠️ **LEGACY / HISTORICAL.** Describes the original Germany/France tool. For the
+> current **Luxembourg** monitor use `README.md` (overview) and `RUNBOOK.md`
+> (operations). Kept for reference only.
+
 ## Quick Start (Step by Step)
 
 ### 1. Install Python dependencies

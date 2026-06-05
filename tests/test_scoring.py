@@ -1,4 +1,4 @@
-"""Tests for the Phase 5 hard filter + soft scoring."""
+"""Tests for the hard filter + soft scoring (rooms/surface/commune; commute soft)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from src.lux_monitor.scoring import (
     NEUTRAL,
     apply_scores,
     passes_hard_filter,
+    prune_nonmatching,
     score_listing,
     top_listings,
 )
@@ -23,6 +24,7 @@ def _orm(
     listing_type: str = "rent",
     *,
     bedrooms: int = 4,
+    rooms_total: int | None = None,
     surface: float = 120.0,
     rent: float = 3000.0,
     price: float = 1_000_000.0,
@@ -37,8 +39,9 @@ def _orm(
         commune=commune,
         listing_type=listing_type,
         bedrooms=bedrooms,
+        rooms_total=rooms_total,
         surface_m2=surface,
-        rent_eur=rent if listing_type == "rent" else None,
+        rent_eur=rent if listing_type in ("rent", "furnished") else None,
         price_eur=price if listing_type == "buy" else None,
         description_raw="A sufficiently long description for the listing.",
         description_lang="fr",
@@ -52,31 +55,53 @@ def _orm(
 
 
 # --- hard filter --------------------------------------------------------------
-def test_rent_passes():
+def test_passes_default():
     assert passes_hard_filter(_orm()).passed
 
 
-def test_rent_knockouts():
-    assert not passes_hard_filter(_orm(bedrooms=3)).passed
-    assert not passes_hard_filter(_orm(surface=80)).passed
-    assert not passes_hard_filter(_orm(rent=2000)).passed  # total < 2500
-    assert not passes_hard_filter(_orm(rent=5000)).passed  # total > 4500
+def test_knockouts():
+    # rooms = bedrooms+1 when rooms_total missing, so 1 bed -> 2 pièces < 3 -> fail
+    assert not passes_hard_filter(_orm(bedrooms=1)).passed
+    assert not passes_hard_filter(_orm(bedrooms=8)).passed   # 9 pièces > 8
+    assert not passes_hard_filter(_orm(surface=70)).passed   # < 80 m²
     res = passes_hard_filter(_orm(commune="Esch-sur-Alzette"))
     assert not res.passed and any("not in target" in r for r in res.reasons)
 
 
-def test_commute_either_mode():
-    assert passes_hard_filter(_orm(drive=35, pt=45)).passed  # PT within cap
-    assert passes_hard_filter(_orm(drive=25, pt=90)).passed  # drive within cap
-    assert not passes_hard_filter(_orm(drive=35, pt=90)).passed  # neither
-    res = passes_hard_filter(_orm(drive=None, pt=None))
-    assert not res.passed and any("not computed" in r for r in res.reasons)
+def test_rooms_uses_total_then_estimates_from_bedrooms():
+    assert passes_hard_filter(_orm(bedrooms=1, rooms_total=3)).passed       # 3 pièces ok
+    assert not passes_hard_filter(_orm(bedrooms=1, rooms_total=2)).passed   # 2 pièces too few
+    # no rooms_total -> estimate bedrooms+1: 2 bed -> 3 pièces passes (the key fix)
+    assert passes_hard_filter(_orm(bedrooms=2)).passed
+    assert passes_hard_filter(_orm(bedrooms=4)).passed
 
 
-def test_buy_filter():
-    assert passes_hard_filter(_orm(listing_type="buy", price=1_000_000)).passed
-    assert not passes_hard_filter(_orm(listing_type="buy", price=500_000)).passed
-    assert not passes_hard_filter(_orm(listing_type="buy", price=2_000_000)).passed
+def test_commute_is_only_an_indicator():
+    # commute is no longer a knockout — a long/absent commute still passes the filter
+    assert passes_hard_filter(_orm(drive=120, pt=200)).passed
+    assert passes_hard_filter(_orm(drive=None, pt=None)).passed
+
+
+def test_price_cap_buy():
+    assert passes_hard_filter(_orm(listing_type="buy", price=2_900_000)).passed
+    assert not passes_hard_filter(_orm(listing_type="buy", price=3_100_000)).passed  # > €3M
+
+
+def test_price_cap_rent():
+    assert passes_hard_filter(_orm(listing_type="rent", rent=5_500)).passed
+    assert not passes_hard_filter(_orm(listing_type="rent", rent=6_500)).passed  # > €6000/mo
+
+
+def test_furnished_is_uncapped():
+    # furnished has no price ceiling
+    assert passes_hard_filter(_orm(listing_type="furnished", rent=20_000)).passed
+
+
+def test_unknown_price_passes():
+    # a sale with price on request (None) is not rejected by the cap
+    l = _orm(listing_type="buy")
+    l.price_eur = None
+    assert passes_hard_filter(l).passed
 
 
 # --- soft score ---------------------------------------------------------------
@@ -89,20 +114,25 @@ def test_score_range_and_sum():
 
 def test_strong_beats_weak():
     strong = score_listing(
-        _orm(
-            commune="Luxembourg", drive=12, pt=26, energy_class="A",
-            has_garage=True, has_garden=True, floor=0,
-            walk_to_school_min=5, llm_quality_score=90,
-        )
+        _orm(commune="Luxembourg", drive=10, pt=20, energy_class="A",
+             has_garage=True, has_garden=True, llm_quality_score=90)
     )
-    weak = score_listing(_orm(commune="Bertrange", drive=23, pt=40))
-    assert strong.total > weak.total
-    assert strong.total > 75
+    weak = score_listing(_orm(commune="Leudelange", drive=30, pt=45))
+    assert strong.total > weak.total and strong.total > 70
+
+
+def test_more_bedrooms_scores_higher():
+    # everything else equal, a 4-bed must outrank a 2-bed (family preference)
+    four = score_listing(_orm(bedrooms=4))
+    two = score_listing(_orm(bedrooms=2))
+    assert four.total > two.total
+    assert four.parts["bedrooms"]["score"] == 1.0   # >= BED_BEST -> full
+    assert two.parts["bedrooms"]["score"] < 1.0
 
 
 def test_drive_monotonic_in_score():
     near = score_listing(_orm(drive=8)).parts["drive_time"]["score"]
-    far = score_listing(_orm(drive=28)).parts["drive_time"]["score"]
+    far = score_listing(_orm(drive=40)).parts["drive_time"]["score"]
     assert near > far
 
 
@@ -113,12 +143,6 @@ def test_energy_ordering():
     assert a > c > i
 
 
-def test_ground_floor_with_garden():
-    yes = score_listing(_orm(floor=0, has_garden=True)).parts["ground_floor_with_garden"]["score"]
-    no = score_listing(_orm(floor=2, has_garden=True)).parts["ground_floor_with_garden"]["score"]
-    assert yes == 1.0 and no == 0.0
-
-
 def test_neutral_for_missing_llm():
     part = score_listing(_orm(llm_quality_score=None)).parts["llm_quality_score"]
     assert part["neutral"] and part["score"] == NEUTRAL
@@ -126,13 +150,13 @@ def test_neutral_for_missing_llm():
 
 # --- apply + ranking ----------------------------------------------------------
 def test_apply_scores_and_top(lux_session):
-    passer = _orm(commune="Luxembourg", drive=12, pt=26, energy_class="A", has_garage=True)
-    weak = _orm(commune="Bertrange", drive=23, pt=40)
-    failer = _orm(bedrooms=2)
+    passer = _orm(commune="Luxembourg", drive=10, pt=20, energy_class="A", has_garage=True)
+    weak = _orm(commune="Leudelange", drive=30, pt=45)
+    failer = _orm(bedrooms=1)  # 2 pièces < 3
     lux_session.add_all([passer, weak, failer])
     lux_session.commit()
 
-    dup = _orm(commune="Luxembourg", drive=12, pt=26)
+    dup = _orm(commune="Luxembourg")
     dup.duplicate_of_id = passer.id  # secondary duplicate -> skipped
     lux_session.add(dup)
     lux_session.commit()
@@ -142,8 +166,32 @@ def test_apply_scores_and_top(lux_session):
 
     assert failer.score_total is None
     assert passer.score_total is not None and weak.score_total is not None
-    assert dup.score_total is None  # never scored
+    assert dup.score_total is None
 
     top = top_listings(lux_session, limit=10)
-    assert top[0].id == passer.id  # strongest first
+    assert top[0].id == passer.id
     assert dup not in top and failer not in top
+
+
+def test_furnished_is_scored(lux_session):
+    furnished = _orm(listing_type="furnished", commune="Strassen", rent=2500)
+    lux_session.add(furnished)
+    lux_session.commit()
+    apply_scores(lux_session)
+    assert furnished.score_total is not None  # furnished passes the same filter
+
+
+def test_prune_nonmatching(lux_session):
+    keep = _orm(commune="Luxembourg", bedrooms=4)
+    over_cap = _orm(listing_type="buy", commune="Luxembourg", price=5_000_000)  # > €3M now
+    off_target = _orm(commune="Esch-sur-Alzette")
+    lux_session.add_all([keep, over_cap, off_target])
+    lux_session.commit()
+
+    pruned = prune_nonmatching(lux_session)
+    assert pruned == 2  # over_cap + off_target deactivated
+
+    assert keep.is_active is True
+    assert over_cap.is_active is False and off_target.is_active is False
+    # idempotent: a second prune deactivates nothing more
+    assert prune_nonmatching(lux_session) == 0

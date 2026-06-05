@@ -18,6 +18,23 @@ logger = logging.getLogger(__name__)
 # Polite identification for a low-volume personal monitor.
 USER_AGENT = "ImmoLuxMonitor/1.0 (personal property search; low volume)"
 
+# A realistic desktop-Chrome header set. Some portals (immotop, wortimmo) reject a
+# bare client with HTTP 403; these headers get a low-volume personal scraper past
+# naive bot-filters. (athome works fine on the polite UA above.)
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "fr-LU,fr;q=0.9,en;q=0.8",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
 # Scraped factual fields refreshed on re-scrape. Deliberately excludes computed
 # fields (commute/walk/llm/score), user workflow fields, price_history, and
 # duplicate_of_id so re-scraping never clobbers enrichment or user edits.

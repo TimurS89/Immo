@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 from pydantic import ValidationError
 
 from src.lux_monitor.schemas import ListingCreate
-from src.scrapers.luxembourg.base import USER_AGENT, LuxBaseScraper
+from src.scrapers.luxembourg.base import BROWSER_HEADERS, LuxBaseScraper
 from src.scrapers.luxembourg.parsing import (
     bedrooms_from_chambres_pieces,
     detect_features,
@@ -126,8 +126,7 @@ class ImmotopScraper(LuxBaseScraper):
         import httpx
 
         results: list[ListingCreate] = []
-        headers = {"User-Agent": USER_AGENT, "Accept-Language": "en;q=0.9,fr-LU;q=0.8"}
-        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=30) as client:
+        async with httpx.AsyncClient(headers=BROWSER_HEADERS, follow_redirects=True, timeout=30) as client:
             for listing_type in ("rent", "buy"):
                 for commune in self.communes():
                     for page in range(1, self.max_pages + 1):

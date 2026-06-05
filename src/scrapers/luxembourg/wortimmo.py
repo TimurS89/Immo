@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 from pydantic import ValidationError
 
 from src.lux_monitor.schemas import ListingCreate
-from src.scrapers.luxembourg.base import USER_AGENT, LuxBaseScraper
+from src.scrapers.luxembourg.base import BROWSER_HEADERS, LuxBaseScraper
 from src.scrapers.luxembourg.parsing import (
     bedrooms_from_chambres_pieces,
     detect_features,
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 class WortimmoScraper(LuxBaseScraper):
     SOURCE_NAME = "wortimmo"
-    BASE_URL = "https://immo.wort.lu"
+    BASE_URL = "https://www.wortimmo.lu"
 
     def search_url(self, commune: str, listing_type: str, page: int = 1) -> str:
         return f"{self.BASE_URL}/find/{commune}/?transaction={listing_type}&page={page}"
@@ -121,8 +121,7 @@ class WortimmoScraper(LuxBaseScraper):
         import httpx
 
         results: list[ListingCreate] = []
-        headers = {"User-Agent": USER_AGENT, "Accept-Language": "fr-LU,fr;q=0.9"}
-        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=30) as client:
+        async with httpx.AsyncClient(headers=BROWSER_HEADERS, follow_redirects=True, timeout=30) as client:
             for listing_type in ("rent", "buy"):
                 for commune in self.communes():
                     for page in range(1, self.max_pages + 1):

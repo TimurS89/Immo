@@ -14,8 +14,6 @@ registry by ``src.config.load_config`` via :func:`lu_country_config`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 # --- Locale / currency / portals -------------------------------------------------
 LU_COUNTRY_CODE = "LU"
@@ -23,6 +21,12 @@ LU_CURRENCY = "EUR"
 LU_LOCALE = "fr-LU"  # primary; de-LU and en also appear in listings
 LU_TIMEZONE = "Europe/Luxembourg"
 LU_PORTALS: tuple[str, ...] = ("athome", "immotop", "wortimmo")
+
+# Only athome runs by default. immotop & wortimmo are PARKED: both are
+# Cloudflare-walled (would need a headless browser) and largely duplicate athome's
+# agency listings, so the effort-to-payoff is poor. Their scrapers stay in the
+# codebase — move a name here to re-enable it.
+ACTIVE_PORTALS: tuple[str, ...] = ("athome",)
 
 
 # --- DWS office: the commute origin/destination ---------------------------------
@@ -46,96 +50,94 @@ DWS_OFFICE = Office(
 )
 
 
-def next_rush_hour_departure(now: datetime | None = None) -> datetime:
-    """Next Tuesday 08:00 in Europe/Luxembourg — *actual* peak, not discounted.
-
-    Used as the ``departure_time`` for drive/PT routing (Phase 4). If today is
-    Tuesday before 08:00, that's the result; otherwise the upcoming Tuesday.
-    """
-    tz = ZoneInfo(LU_TIMEZONE)
-    now = now.astimezone(tz) if now is not None else datetime.now(tz)
-    days_ahead = (1 - now.weekday()) % 7  # Tuesday == weekday() 1
-    candidate = now.replace(hour=8, minute=0, second=0, microsecond=0) + timedelta(
-        days=days_ahead
-    )
-    if candidate <= now:
-        candidate += timedelta(days=7)
-    return candidate
-
-
 # --- Target communes (search and filter scope) ----------------------------------
-# NOTE: school_lat/school_lng are reasonable starting points for the main
-# école fondamentale of each commune; Phase 4 (routing.py) re-geocodes them
-# precisely via Google before computing walking times. For Ville de Luxembourg
-# (many schools across quarters) the coordinate is a central placeholder.
+# lat/lng are the commune centre (a single anchor point) used only for the
+# approximate drive/PT commute estimate to the office. Deliberately coarse — no
+# per-listing geocoding or walking-distance precision.
 TARGET_COMMUNES: dict[str, dict] = {
     "Luxembourg":    {"foreign_pct": 70, "has_train": True,  "primary": True,
-                      "school_lat": 49.6117, "school_lng": 6.1250,
+                      "lat": 49.6116, "lng": 6.1319,
                       "appeal": "capital; office (Kirchberg) in-commune, transport hub, all amenities, expat-dense"},
-    "Walferdange":   {"foreign_pct": 54, "has_train": True,  "primary": True,
-                      "school_lat": 49.6584, "school_lng": 6.1306,
-                      "appeal": "family, forest, train, school cluster strong"},
-    "Bertrange":     {"foreign_pct": 55, "has_train": False, "primary": True,
-                      "school_lat": 49.6094, "school_lng": 6.0670,
-                      "appeal": "close to office, expat-dense, shopping"},
     "Strassen":      {"foreign_pct": 65, "has_train": False, "primary": True,
-                      "school_lat": 49.6193, "school_lng": 6.0815,
+                      "lat": 49.6206, "lng": 6.0747,
                       "appeal": "closest to office, highest expat %, premium pricing"},
+    "Bertrange":     {"foreign_pct": 55, "has_train": False, "primary": True,
+                      "lat": 49.6092, "lng": 6.0530,
+                      "appeal": "close to office, expat-dense, Belle Étoile shopping"},
     "Mamer":         {"foreign_pct": 54, "has_train": True,  "primary": True,
-                      "school_lat": 49.6300, "school_lng": 6.0235,
+                      "lat": 49.6278, "lng": 6.0228,
                       "appeal": "European School, family, train station"},
+    "Walferdange":   {"foreign_pct": 54, "has_train": True,  "primary": True,
+                      "lat": 49.6586, "lng": 6.1306,
+                      "appeal": "family, forest, train, schools"},
     "Hesperange":    {"foreign_pct": 55, "has_train": False, "primary": False,
-                      "school_lat": 49.5757, "school_lng": 6.1531,
-                      "appeal": "south of city, expat-friendly"},
-    "Sandweiler":    {"foreign_pct": 45, "has_train": False, "primary": False,
-                      "school_lat": 49.6147, "school_lng": 6.2050,
-                      "appeal": "close to office and airport"},
-    "Howald":        {"foreign_pct": 55, "has_train": False, "primary": False,
-                      "school_lat": 49.5938, "school_lng": 6.1338,
-                      "appeal": "edge of city, well-connected"},
+                      "lat": 49.5728, "lng": 6.1542,
+                      "appeal": "south of the city, expat-friendly"},
+    "Leudelange":    {"foreign_pct": 45, "has_train": False, "primary": False,
+                      "lat": 49.5667, "lng": 6.0883,
+                      "appeal": "near Cloche d'Or business district, quiet, quick to the city"},
 }
 
 PRIMARY_COMMUNES: tuple[str, ...] = tuple(
     name for name, meta in TARGET_COMMUNES.items() if meta["primary"]
 )
 
+# athome.lu commune-level location-filter tokens ("hkey"), captured from the
+# site's resolved search URLs (the ``q=<hkey>`` parameter — ``loc=`` alone is
+# ignored). These are stable, transaction-independent geographic IDs (the same
+# token filters rent, buy and furnished). The scraper logs the per-commune result
+# count, so if athome ever rebuilds its geo index a stale token shows up as
+# total=0 and we re-capture it.
+COMMUNE_HKEYS: dict[str, str] = {
+    "Luxembourg":  "d8380e34",
+    "Strassen":    "e7677861",
+    "Bertrange":   "4d6066a8",
+    "Mamer":       "a8916871",
+    "Walferdange": "a2e51548",
+    "Hesperange":  "7d5d258f",
+    "Leudelange":  "1b11c8fe",
+}
 
-# --- Hard filters (rentals — primary use case) ----------------------------------
-HARD_FILTERS_RENT: dict = {
-    "min_bedrooms": 4,
-    "min_surface_m2": 100,
-    "min_rent_total_eur": 2500,
-    "max_rent_total_eur": 4500,  # inclusive of charges
-    "max_drive_time_rush_min": 30,  # RUSH HOUR, Tuesday 08:00
-    "max_pt_time_rush_min": 60,  # RUSH HOUR, Tuesday 08:00
+
+# --- Hard filters (apply to all three listing categories) ------------------------
+# Deliberately simple: rooms, surface, commune — plus a per-type price ceiling.
+# Commute is NOT a knockout (soft indicator only); there is no minimum price.
+HARD_FILTERS: dict = {
+    "min_rooms": 3,       # pièces if the portal reports them, else bedrooms
+    "max_rooms": 8,
+    "min_surface_m2": 80,
     "communes": list(TARGET_COMMUNES),
 }
 
-# --- Hard filters (sale — secondary, lower priority initially) -------------------
-HARD_FILTERS_BUY: dict = {
-    "min_bedrooms": 4,
-    "min_surface_m2": 100,
-    "min_price_eur": 800_000,
-    "max_price_eur": 1_400_000,
-    "max_drive_time_rush_min": 30,
-    "max_pt_time_rush_min": 60,
-    "communes": list(TARGET_COMMUNES),
+# Per-listing-type maximum price (EUR). buy is a sale price; rent is the monthly
+# total; furnished is intentionally uncapped (None). A missing/unknown price never
+# fails the filter — only a price strictly above the cap does.
+MAX_PRICE_EUR: dict = {
+    "buy": 3_000_000,
+    "rent": 6_000,
+    "furnished": None,
 }
 
-# --- Soft scoring weights (post-filter ranking) ---------------------------------
+# Furnished / long-term rent / buy share the room/surface/commune criteria; the
+# price ceiling differs per type (looked up via MAX_PRICE_EUR in scoring).
+HARD_FILTERS_RENT = HARD_FILTERS
+HARD_FILTERS_BUY = HARD_FILTERS
+
+# --- Soft scoring weights (post-filter ranking; must sum to 100) -----------------
 SCORING_WEIGHTS: dict = {
-    "drive_time": 20,
-    "pt_time": 15,
-    "foreign_pct": 10,
-    "school_walking_distance": 15,
-    "creche_walking_distance": 5,
-    "park_walking_distance": 5,
-    "energy_class": 10,
-    "has_garage": 5,
-    "has_garden": 5,
-    "ground_floor_with_garden": 3,
-    "llm_quality_score": 7,
+    "bedrooms": 18,          # family size — more bedrooms ranks higher
+    "drive_time": 20,        # approximate car commute to the office (indicator)
+    "pt_time": 15,           # approximate public-transport commute (indicator)
+    "foreign_pct": 13,       # expat-friendliness of the commune
+    "energy_class": 8,
+    "has_garage": 7,
+    "has_garden": 7,
+    "llm_quality_score": 12,  # description quality (heuristic flags/highlights)
 }
+
+# Bedroom subscore band: BED_BEST bedrooms (or more) -> 1.0; 1 bedroom -> 0.0.
+# Tuned for a family search so 4-bed clearly outranks 2-bed.
+BED_BEST = 4
 
 
 def lu_country_config():
@@ -156,5 +158,7 @@ def lu_country_config():
         timezone=LU_TIMEZONE,
         regions=list(TARGET_COMMUNES),
         areas=areas,
-        portals=[PortalConfig(name=p) for p in LU_PORTALS],
+        portals=[
+            PortalConfig(name=p, enabled=(p in ACTIVE_PORTALS)) for p in LU_PORTALS
+        ],
     )

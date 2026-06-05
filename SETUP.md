@@ -1,4 +1,11 @@
-# Setup — Luxembourg Property Monitor (Ubuntu 24.04 / Python 3.11)
+# Setup — Luxembourg Property Monitor (Ubuntu 24.04 / Python 3.11+)
+
+> **Just want to run the Luxembourg monitor?** Use the **lean install** in
+> [`README.md` → Quick start](README.md#quick-start) — it needs only
+> `httpx`/`bs4`/`sqlalchemy`/… (no Playwright, no WeasyPrint) and is what the
+> live system actually uses. The browser dashboard additionally needs
+> `pip install streamlit`. The sections below describe the **full** install
+> (including the dormant DE/FR stack and its heavy deps) and are optional.
 
 Workstation setup for the autonomous monitor. Ubuntu 24.04's system Python is
 PEP-668 "externally managed", so **always use the project venv** — never

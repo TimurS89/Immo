@@ -1,0 +1,15 @@
+[Unit]
+Description=Run the Luxembourg property monitor daily
+Documentation=https://github.com/timurs89/immo
+
+[Timer]
+# Daily at 07:00 local time.
+OnCalendar=*-*-* 07:00:00
+# If the machine was off/asleep at 07:00, run as soon as it's back (the key
+# advantage over cron, which would silently skip the missed day).
+Persistent=true
+# Spread load / avoid an exact-second stampede.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
