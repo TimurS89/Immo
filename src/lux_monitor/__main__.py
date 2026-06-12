@@ -133,12 +133,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--init-db", action="store_true",
                      help="create tables if missing (otherwise require `alembic upgrade head`)")
     run.add_argument("--top", type=int, default=20, help="how many to show (default 20)")
-    run.add_argument("--type", choices=("rent", "buy"), help="restrict shortlist to one type")
+    run.add_argument("--type", choices=("furnished", "rent", "buy"), help="restrict shortlist to one type")
     run.set_defaults(func=cmd_run)
 
     shortlist = sub.add_parser("shortlist", parents=[common], help="show the ranked shortlist")
     shortlist.add_argument("--top", type=int, default=20)
-    shortlist.add_argument("--type", choices=("rent", "buy"))
+    shortlist.add_argument("--type", choices=("furnished", "rent", "buy"))
     shortlist.set_defaults(func=cmd_shortlist)
 
     initdb = sub.add_parser("init-db", parents=[common],

@@ -153,6 +153,10 @@ stack, see `SETUP.md`.)
 
 ## Using it day to day
 
+> **Operator cheatsheet:** `CHEATSHEET.md` has copy‑paste snippets for the daily
+> check, dashboard, manual runs, tuning, backups and troubleshooting — use that to
+> run the tool without re‑deriving commands.
+
 ```bash
 # Full pipeline: scrape every portal, then print the shortlist
 python -m src.lux_monitor run
