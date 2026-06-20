@@ -61,10 +61,16 @@ Open in a browser:
 - **Phone (same Wi-Fi):** http://192.168.1.13:8501
   (if that IP changed: `hostname -I | awk '{print $1}'` to get the current one)
 
-In the dashboard: filter by type/commune/min-score, sort (incl. **days** on market),
-**🆕 New only** toggle, **📉 price drops**, **📈 market trends** + rent-vs-buy compare,
-**🐌 long on the market**. Hit **🔄 Reload data** after a new run. Click **open ↗** to
-view an advert.
+In the dashboard, **Screen** (sidebar): rooms ≥, bedrooms ≥, surface m² ≥,
+**monthly € ≤** (rent or estimated mortgage), drive min ≤, plus type/commune/min-score.
+Sort by score / € / **€/mo** / **€/m²** / days. Sections: **🆕 New only**,
+**📉 price drops**, **📈 market trends** + rent-vs-buy compare, **🐌 long on the market**.
+Hit **🔄 Reload data** after a new run; **open ↗** to view an advert.
+
+The **€/mo** column puts buy and rent on one axis: for a buy it's the estimated
+**mortgage payment** (loan principal+interest, per `MORTGAGE` in
+`config/luxembourg.py` — default 3.5% / 30y / 100% financing). It excludes notaire
+fees, maintenance and impôt foncier, so true ownership cost is a bit higher.
 
 > Dashboard needs Streamlit once: `pip install streamlit`
 
@@ -99,6 +105,8 @@ Knobs in that file:
 - `HARD_FILTERS` — rooms 3–8, surface ≥ 80 m².
 - `MAX_PRICE_EUR` — buy ≤ €3M, rent ≤ €6000/mo, furnished uncapped.
 - `SCORING_WEIGHTS` — must sum to 100.
+- `MORTGAGE` — rate %, term years, financing % for the buy **€/mo** estimate
+  (used in the dashboard and the terminal shortlist; no re-scrape needed).
 
 > After a **filter** change, the next `run` also **prunes** listings that no longer
 > match (deactivates them) — so the DB self-cleans.

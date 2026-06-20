@@ -27,6 +27,7 @@ st.set_page_config(page_title="LU Property Monitor", page_icon="🏠", layout="w
 @st.cache_data(ttl=120)
 def load_rows() -> pd.DataFrame:
     from src.lux_monitor.digest import days_on_market
+    from src.lux_monitor.finance import monthly_mortgage
 
     with session_scope(get_engine()) as session:
         listings = (
@@ -37,6 +38,11 @@ def load_rows() -> pd.DataFrame:
         records = []
         for l in listings:
             price = l.price_eur if l.listing_type == "buy" else l.rent_total_eur
+            # Monthly cost that lets buy and rent be compared on one axis:
+            # estimated mortgage payment for a buy, the rent for a rental.
+            mortgage = monthly_mortgage(l.price_eur) if l.listing_type == "buy" else None
+            monthly = mortgage if l.listing_type == "buy" else price
+            ppm2 = round(price / l.surface_m2) if price and l.surface_m2 else None
             records.append(
                 {
                     "score": l.score_total,
@@ -46,6 +52,9 @@ def load_rows() -> pd.DataFrame:
                     "bd": l.bedrooms,
                     "m²": l.surface_m2,
                     "€": price,
+                    "€/mo": monthly,
+                    "€/m²": ppm2,
+                    "mortgage/mo": mortgage,
                     "days": days_on_market(l),
                     "drive": l.drive_time_rush_min,
                     "PT": l.pt_time_rush_min,
@@ -122,7 +131,18 @@ all_communes = sorted(df["commune"].dropna().unique())
 types = st.sidebar.multiselect("Type", all_types, default=all_types)
 communes = st.sidebar.multiselect("Commune", all_communes, default=all_communes)
 min_score = st.sidebar.slider("Min score", 0, 100, 0)
-sort_by = st.sidebar.selectbox("Sort by", ["score", "€", "days", "first seen", "drive", "PT", "m²"])
+
+st.sidebar.subheader("Screen")
+min_rooms = st.sidebar.number_input("Rooms ≥", min_value=0, max_value=12, value=0, step=1)
+min_bd = st.sidebar.number_input("Bedrooms ≥", min_value=0, max_value=10, value=0, step=1)
+min_m2 = st.sidebar.number_input("Surface m² ≥", min_value=0, max_value=600, value=0, step=10)
+max_monthly = st.sidebar.number_input(
+    "Monthly € ≤ (rent / est. mortgage)", min_value=0, max_value=20000, value=0, step=250,
+    help="0 = no cap. For buy, compares the estimated mortgage payment.")
+max_drive = st.sidebar.number_input("Drive min ≤", min_value=0, max_value=120, value=0, step=5)
+
+sort_by = st.sidebar.selectbox(
+    "Sort by", ["score", "€", "€/mo", "€/m²", "days", "first seen", "drive", "PT", "m²"])
 ascending = st.sidebar.toggle("Ascending", value=False)
 st.sidebar.divider()
 new_only = st.sidebar.toggle("🆕 New only", value=False)
@@ -134,6 +154,16 @@ if scored_only:
 view = view[view["type"].isin(types) & view["commune"].isin(communes)]
 if min_score:
     view = view[view["score"].fillna(0) >= min_score]
+if min_rooms:
+    view = view[view["rooms"].fillna(0) >= min_rooms]
+if min_bd:
+    view = view[view["bd"].fillna(0) >= min_bd]
+if min_m2:
+    view = view[view["m²"].fillna(0) >= min_m2]
+if max_monthly:
+    view = view[view["€/mo"].fillna(1e12) <= max_monthly]
+if max_drive:
+    view = view[view["drive"].fillna(1e9) <= max_drive]
 if new_only:
     cutoff = (date.today() - timedelta(days=new_days)).isoformat()
     view = view[view["first seen"].fillna("") >= cutoff]
@@ -154,13 +184,21 @@ st.dataframe(
     column_config={
         "link": st.column_config.LinkColumn("link", display_text="open ↗"),
         "score": st.column_config.NumberColumn("score", format="%.1f"),
-        "€": st.column_config.NumberColumn("€", format="%d"),
+        "€": st.column_config.NumberColumn("€ (price/rent)", format="%d"),
+        "€/mo": st.column_config.NumberColumn("€/mo", format="%d", help="rent, or estimated mortgage for buy"),
+        "€/m²": st.column_config.NumberColumn("€/m²", format="%d"),
+        "mortgage/mo": st.column_config.NumberColumn("mortgage/mo", format="%d"),
         "m²": st.column_config.NumberColumn("m²", format="%d"),
     },
 )
+from config.luxembourg import MORTGAGE  # noqa: E402  (display the assumptions used)
 st.caption(
-    "Source: data/monitor.db (read-only) · refresh after a new run · "
-    "a blank score means the listing was stored but falls outside the hard filter."
+    f"Source: data/monitor.db (read-only) · refresh after a new run · a blank score "
+    f"means the listing falls outside the hard filter. **€/mo** lets you compare buy "
+    f"vs rent on one axis: for a buy it's the estimated mortgage payment "
+    f"({MORTGAGE['annual_rate_pct']}% over {MORTGAGE['term_years']}y, "
+    f"{MORTGAGE['financing_pct']}% financing) — **loan principal+interest only**, "
+    f"excluding notaire fees, maintenance and impôt foncier (real ownership cost is higher)."
 )
 
 st.subheader("📉 Recent price drops (last 30 days)")

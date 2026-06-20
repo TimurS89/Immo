@@ -245,11 +245,17 @@ def render_shortlist_table(rows: list[Listing]) -> None:
     from rich.console import Console
     from rich.table import Table
 
+    from src.lux_monitor.finance import monthly_mortgage
+
     table = Table(title="Luxembourg shortlist — top by score", show_lines=False)
-    for col in ("#", "Score", "Type", "Commune", "Bd", "m²", "€", "Drive", "PT", "Energy", "Gar", "Grd"):
-        table.add_column(col, justify="right" if col in {"Score", "Bd", "m²", "€", "Drive", "PT"} else "left")
+    cols = ("#", "Score", "Type", "Commune", "Bd", "m²", "€", "€/mo", "Drive", "PT", "Energy", "Gar", "Grd")
+    right = {"Score", "Bd", "m²", "€", "€/mo", "Drive", "PT"}
+    for col in cols:
+        table.add_column(col, justify="right" if col in right else "left")
     for i, l in enumerate(rows, 1):
         price = l.price_eur if l.listing_type == "buy" else l.rent_total_eur
+        # €/mo: rent for rentals; estimated mortgage payment for a buy.
+        monthly = monthly_mortgage(l.price_eur) if l.listing_type == "buy" else price
         table.add_row(
             str(i),
             f"{l.score_total:.1f}" if l.score_total is not None else "-",
@@ -258,6 +264,7 @@ def render_shortlist_table(rows: list[Listing]) -> None:
             str(l.bedrooms),
             f"{l.surface_m2:.0f}",
             f"{price:,.0f}" if price is not None else "-",
+            f"{monthly:,.0f}" if monthly is not None else "-",
             str(l.drive_time_rush_min if l.drive_time_rush_min is not None else "-"),
             str(l.pt_time_rush_min if l.pt_time_rush_min is not None else "-"),
             l.energy_class or "-",
