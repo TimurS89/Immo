@@ -33,6 +33,7 @@ from config.luxembourg import (
     BED_BEST,
     HARD_FILTERS,
     MAX_PRICE_EUR,
+    MIN_PRICE_EUR,
     SCORING_WEIGHTS,
     TARGET_COMMUNES,
 )
@@ -100,11 +101,16 @@ def passes_hard_filter(listing: Listing, filters: dict | None = None) -> FilterR
         reasons.append(f"surface {listing.surface_m2:.0f} m² < {f['min_surface_m2']}")
 
     # Per-type price ceiling (furnished is uncapped). An unknown price passes —
-    # only a price strictly above the cap is rejected.
+    # only a price strictly OUTSIDE the [floor, cap] band is rejected. The floor
+    # drops portal data errors (e.g. a €1,111 "sale"); a missing price still passes.
     cap = MAX_PRICE_EUR.get(listing.listing_type)
+    floor = MIN_PRICE_EUR.get(listing.listing_type)
     price = listing.compare_price
-    if cap is not None and price is not None and price > cap:
-        reasons.append(f"price {price:.0f} > {cap} cap for {listing.listing_type}")
+    if price is not None:
+        if cap is not None and price > cap:
+            reasons.append(f"price {price:.0f} > {cap} cap for {listing.listing_type}")
+        elif floor is not None and price < floor:
+            reasons.append(f"price {price:.0f} < {floor} floor for {listing.listing_type}")
 
     return FilterResult(passed=not reasons, reasons=reasons)
 

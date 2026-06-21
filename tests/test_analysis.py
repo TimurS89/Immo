@@ -1,6 +1,15 @@
-"""Tests for analysis module."""
+"""Tests for analysis module.
+
+LEGACY (Germany/France stack). These exercise src/analysis + src/database, which
+depend on heavy deps (thefuzz, …) that the lean Luxembourg install omits. Skip the
+whole module cleanly when those deps aren't present, rather than erroring at
+collection time.
+"""
 
 import pytest
+
+pytest.importorskip("thefuzz", reason="legacy DE/FR stack dep not installed (lean LU install)")
+
 from datetime import datetime, timedelta
 from src.database.db import init_db, get_session, get_engine
 from src.database.models import Base, Property, PriceHistory
