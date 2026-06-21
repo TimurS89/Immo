@@ -14,6 +14,30 @@ Fuller docs: `README.md` (overview), `RUNBOOK.md` (go-live), `SESSION_HANDOFF.md
 
 ---
 
+## 0. After a code update (do this when you've `git pull`ed new fixes)
+
+Whenever new code has been pushed (like the latest review fixes), bring your box
+up to date and rebuild the data so it reflects the new filters/scoring:
+
+```bash
+cd ~/immo && source .venv/bin/activate
+git pull                              # get the new code
+alembic upgrade head                  # apply any new DB migrations (safe)
+pytest -q                             # sanity: should say "153 passed"
+
+# Recommended after filter/scoring changes — fresh, fully-correct dataset:
+rm -f data/monitor.db && alembic upgrade head
+python -m src.lux_monitor run         # full harvest (~5 min)
+```
+
+Not sure if a re-scrape is needed? A plain `python -m src.lux_monitor run` is
+always safe — it updates in place and (since filters changed) **prunes** any
+stored listings that no longer match. The `rm data/monitor.db` is only to discard
+old trend history and start the snapshots clean; skip it if you want to keep the
+history you've already accumulated.
+
+---
+
 ## 1. Daily check — "did the 7am run work, and what's new?"
 
 **A. Did it run and succeed?** (no venv needed)
@@ -152,8 +176,11 @@ cp ~/immo/data/monitor.db ~/immo/data/monitor_backup_$(date +%F).db   # back up
 ```bash
 cd ~/immo && git pull            # get the latest code
 alembic upgrade head             # apply any new DB migrations (safe; no data loss)
-pytest -q                        # 135 passing = healthy
+pytest -q                        # 153 passing = healthy
 ```
+
+(See **§0** for the full "after a code update" routine, incl. an optional clean
+re-scrape.)
 
 ---
 
@@ -166,6 +193,7 @@ pytest -q                        # 135 passing = healthy
 | Counts look wrong / thin | look at the `athome funnel …` lines in the log: `total=` vs `kept=` per commune |
 | Dashboard won't load on phone | use `http://<PC-LAN-IP>:8501` (not localhost); IP via `hostname -I` |
 | `ModuleNotFoundError` | you forgot `source .venv/bin/activate` |
+| `snapshot stage failed` in log / no trends | you skipped a migration — run `alembic upgrade head` (the run itself still succeeds; snapshots are non-fatal) |
 | athome returns nothing | a commune's `q=` token may be stale — see SESSION_HANDOFF "How athome scraping works" |
 
 ---

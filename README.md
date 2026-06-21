@@ -63,7 +63,7 @@ Every run, the tool:
 
 ## Current status
 
-The pipeline is built, **tested (132 passing tests)**, and **running live against
+The pipeline is built, **tested (153 passing tests)**, and **running live against
 athome.lu** end‑to‑end. A full run currently harvests ~1,500 matching listings
 across the three types in the 7 target communes.
 
@@ -233,8 +233,10 @@ src/lux_monitor/
   commute.py                  # offline drive/PT estimate
   analysis.py                 # offline FR/DE/EN description heuristics
   scoring.py                  # hard filter + price caps + weighted score + prune + Rich shortlist
-  digest.py                   # "new since last run" + price-drops queries
+  finance.py                  # mortgage estimate + buy-vs-rent break-even
+  digest.py                   # new-since-last-run, price-drops, days-on-market, buy-vs-rent
   snapshots.py                # daily market aggregates (trend layer)
+  timeutil.py                 # shared naive-UTC datetime helpers
   dashboard.py                # Streamlit browser dashboard
   __main__.py                 # the `python -m src.lux_monitor` CLI (run/shortlist/dashboard/init-db)
 src/scrapers/luxembourg/
@@ -244,7 +246,7 @@ src/scrapers/luxembourg/
   __init__.py                 # run_luxembourg() orchestrator
 alembic/                      # database migrations
 scripts/run_lux.sh            # cron wrapper
-tests/                        # 132 tests (pytest)
+tests/                        # 153 tests (pytest)
 SETUP.md / RUNBOOK.md / ARCHITECTURE.md   # deeper docs
 ```
 
