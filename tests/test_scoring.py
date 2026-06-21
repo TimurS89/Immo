@@ -94,6 +94,16 @@ def test_price_cap_buy():
     assert not passes_hard_filter(_orm(listing_type="buy", price=3_100_000)).passed  # > €3M
 
 
+def test_price_floor_drops_junk():
+    # portal data errors (a €1,111 "sale", a €5/mo rent) are rejected by the floor
+    res = passes_hard_filter(_orm(listing_type="buy", price=1_111))
+    assert not res.passed and any("floor" in r for r in res.reasons)
+    assert not passes_hard_filter(_orm(listing_type="buy", price=100_000)).passed   # < €150k
+    assert passes_hard_filter(_orm(listing_type="buy", price=850_000)).passed       # real
+    assert not passes_hard_filter(_orm(listing_type="rent", rent=5)).passed         # junk rent
+    assert passes_hard_filter(_orm(listing_type="rent", rent=2_500)).passed         # real
+
+
 def test_price_cap_rent():
     assert passes_hard_filter(_orm(listing_type="rent", rent=5_500)).passed
     assert not passes_hard_filter(_orm(listing_type="rent", rent=6_500)).passed  # > €6000/mo

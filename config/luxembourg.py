@@ -118,6 +118,16 @@ MAX_PRICE_EUR: dict = {
     "furnished": None,
 }
 
+# Per-type minimum price (EUR) — a sanity floor that drops portal data errors
+# (e.g. a €1,111 "sale", a €5/mo rent) and obvious non-prices. A real qualifying
+# 4-bed home/flat in these communes is comfortably above these. A missing/unknown
+# price still passes (only a present price BELOW the floor is rejected).
+MIN_PRICE_EUR: dict = {
+    "buy": 150_000,   # no real 80m²+ family home sells below this in-scope
+    "rent": 1_000,    # no real 80m²+ long-term rental is below this
+    "furnished": 800,
+}
+
 # Furnished / long-term rent / buy share the room/surface/commune criteria; the
 # price ceiling differs per type (looked up via MAX_PRICE_EUR in scoring).
 HARD_FILTERS_RENT = HARD_FILTERS
