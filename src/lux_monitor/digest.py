@@ -8,24 +8,16 @@ active, non-duplicate listings, and default to ones that passed the hard filter
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from sqlalchemy.orm import Session, selectinload
 
 from src.lux_monitor.models import Listing
+from src.lux_monitor.timeutil import as_naive_utc, naive_utc_cutoff, naive_utc_now
 
-
-def _utc_cutoff(days: int) -> datetime:
-    # SQLite stores naive datetimes (UTC); compare against naive UTC.
-    return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
-
-
-def _as_naive_utc(value: datetime) -> datetime:
-    """Normalize a datetime to naive UTC (from-DB rows are naive; in-session
-    rows may still be the original timezone-aware object)."""
-    if value.tzinfo is not None:
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
-    return value
+# Back-compat local aliases (these names are used throughout this module/tests).
+_as_naive_utc = as_naive_utc
+_utc_cutoff = naive_utc_cutoff
 
 
 def new_listings(session: Session, *, days: int = 7, scored_only: bool = True) -> list[Listing]:
@@ -55,7 +47,7 @@ def days_on_market(listing: Listing, *, now: datetime | None = None) -> int | No
     if listing.is_active is False and listing.last_seen_at is not None:
         end = _as_naive_utc(listing.last_seen_at)
     else:
-        end = _as_naive_utc(now) if now else datetime.now(timezone.utc).replace(tzinfo=None)
+        end = _as_naive_utc(now) if now else naive_utc_now()
     return max(0, (end - start).days)
 
 
@@ -126,3 +118,78 @@ def price_drops(session: Session, *, days: int = 30, scored_only: bool = True) -
 
     drops.sort(key=lambda d: d.pct)  # most negative (biggest drop) first
     return drops
+
+
+@dataclass
+class BuyVsRent:
+    commune: str
+    n_rent: int
+    n_buy: int
+    median_rent: float | None       # monthly, long-term rent only
+    median_mortgage: float | None   # monthly, estimated at the given rate
+    break_even_years: float | None
+
+    @property
+    def delta(self) -> float | None:
+        """Monthly buy − rent (positive = buying costs more per month)."""
+        if self.median_rent is None or self.median_mortgage is None:
+            return None
+        return round(self.median_mortgage - self.median_rent)
+
+
+def buy_vs_rent_by_commune(
+    session: Session,
+    *,
+    annual_rate_pct: float | None = None,
+    term_years: int | None = None,
+    financing_pct: float | None = None,
+) -> list[BuyVsRent]:
+    """Per-commune median long-term rent vs median estimated mortgage + break-even.
+
+    Pure aggregation over active, non-duplicate, scored listings, so the dashboard
+    (and any notifier) renders identical numbers. Furnished is intentionally
+    excluded from the rent median — it's a pricier, uncapped product that would
+    bias the comparison.
+    """
+    import statistics
+
+    from src.lux_monitor.finance import break_even_years, monthly_mortgage
+
+    rows = (
+        session.query(Listing)
+        .filter(
+            Listing.is_active.is_(True),
+            Listing.duplicate_of_id.is_(None),
+            Listing.score_total.isnot(None),
+        )
+        .all()
+    )
+    by_commune: dict[str, dict[str, list]] = {}
+    for l in rows:
+        bucket = by_commune.setdefault(l.commune, {"rent": [], "buy_mort": [], "buy_price": []})
+        if l.listing_type == "rent" and l.compare_price is not None:
+            bucket["rent"].append(l.compare_price)
+        elif l.listing_type == "buy" and l.price_eur is not None:
+            m = monthly_mortgage(
+                l.price_eur, annual_rate_pct=annual_rate_pct,
+                term_years=term_years, financing_pct=financing_pct,
+            )
+            if m is not None:
+                bucket["buy_mort"].append(m)
+                bucket["buy_price"].append(l.price_eur)
+
+    out: list[BuyVsRent] = []
+    for commune in sorted(by_commune):
+        b = by_commune[commune]
+        med_rent = statistics.median(b["rent"]) if b["rent"] else None
+        med_mort = statistics.median(b["buy_mort"]) if b["buy_mort"] else None
+        med_price = statistics.median(b["buy_price"]) if b["buy_price"] else None
+        out.append(BuyVsRent(
+            commune=commune,
+            n_rent=len(b["rent"]),
+            n_buy=len(b["buy_mort"]),
+            median_rent=None if med_rent is None else round(med_rent),
+            median_mortgage=None if med_mort is None else round(med_mort),
+            break_even_years=break_even_years(med_price, med_mort, med_rent),
+        ))
+    return out

@@ -246,3 +246,56 @@ def test_llm_json_columns(session):
     read = ListingRead.model_validate(loaded)
     assert read.llm_highlights == ["renovated kitchen", "large garden", "south terrace"]
     assert read.llm_red_flags == ["north-facing", "near motorway"]
+
+
+def test_compare_price_buy_and_rent_fallback():
+    from src.lux_monitor.schemas import ListingCreate
+
+    def mk(**over):
+        d = dict(portal="athome", portal_listing_id="cp", url="https://x",
+                 commune="Luxembourg", listing_type="rent", bedrooms=4, surface_m2=120,
+                 description_raw="x" * 20, description_lang="fr", title="t")
+        d.update(over)
+        return ListingCreate(**d).to_orm()
+
+    # buy -> price_eur
+    assert mk(listing_type="buy", price_eur=900_000).compare_price == 900_000
+    # rent -> rent_total_eur (rent + charges derived in to_orm)
+    r = mk(rent_eur=3000, charges_eur=200)
+    assert r.compare_price == 3200
+    # rent with only rent_eur (no total) -> falls back to rent_eur
+    r2 = mk(rent_eur=2800)
+    r2.rent_total_eur = None  # simulate missing total
+    assert r2.compare_price == 2800
+
+
+def test_touch_resets_first_seen_on_relisting():
+    from datetime import datetime
+    from src.lux_monitor.schemas import ListingCreate
+
+    obj = ListingCreate(portal="athome", portal_listing_id="re", url="https://x",
+                        commune="Luxembourg", listing_type="rent", bedrooms=4,
+                        surface_m2=120, rent_eur=3000, description_raw="x" * 20,
+                        description_lang="fr", title="t").to_orm()
+    old = datetime(2026, 1, 1)
+    obj.first_seen_at = old
+    obj.mark_inactive(when=datetime(2026, 2, 1))  # delisted
+
+    obj.touch(when=datetime(2026, 6, 1))  # relisted months later
+    assert obj.is_active is True
+    assert obj.first_seen_at == datetime(2026, 6, 1)  # reset, not the old date
+
+
+def test_touch_keeps_first_seen_when_still_active():
+    from datetime import datetime
+    from src.lux_monitor.schemas import ListingCreate
+
+    obj = ListingCreate(portal="athome", portal_listing_id="act", url="https://x",
+                        commune="Luxembourg", listing_type="rent", bedrooms=4,
+                        surface_m2=120, rent_eur=3000, description_raw="x" * 20,
+                        description_lang="fr", title="t").to_orm()
+    old = datetime(2026, 1, 1)
+    obj.first_seen_at = old
+    obj.is_active = True  # still active (a normal re-scrape)
+    obj.touch(when=datetime(2026, 6, 1))
+    assert obj.first_seen_at == old  # unchanged for a continuously-active listing

@@ -15,23 +15,18 @@ from __future__ import annotations
 
 import logging
 import statistics
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from src.lux_monitor.models import Listing, MarketSnapshot
+from src.lux_monitor.timeutil import as_naive_utc, naive_utc_now
 
 logger = logging.getLogger(__name__)
 
-ALL_COMMUNES = "All"  # rollup label across communes for a type
-
-
-def _price(listing: Listing) -> float | None:
-    if listing.listing_type == "buy":
-        return listing.price_eur
-    if listing.rent_total_eur is not None:
-        return listing.rent_total_eur
-    return listing.rent_eur
+# Rollup label across communes for a type. Sentinel-prefixed so it can never
+# collide with a real commune name (which would break the unique constraint).
+ALL_COMMUNES = "[all]"
 
 
 def _median(values: list[float]) -> float | None:
@@ -48,18 +43,16 @@ def _day_bounds(when: datetime) -> tuple[datetime, datetime]:
 
 
 def _aggregate(listings: list[Listing], *, new_since: datetime | None) -> dict:
-    prices = [p for p in (_price(l) for l in listings) if p is not None]
+    # Compute compare_price once per listing.
+    priced = [(l, l.compare_price) for l in listings]
+    prices = [p for _, p in priced if p is not None]
     surfaces = [l.surface_m2 for l in listings if l.surface_m2]
-    ppm2 = [
-        _price(l) / l.surface_m2
-        for l in listings
-        if _price(l) is not None and l.surface_m2
-    ]
+    ppm2 = [p / l.surface_m2 for l, p in priced if p is not None and l.surface_m2]
     new_count = 0
     if new_since is not None:
         new_count = sum(
             1 for l in listings
-            if l.first_seen_at and _as_naive_utc(l.first_seen_at) >= new_since
+            if l.first_seen_at and as_naive_utc(l.first_seen_at) >= new_since
         )
     return {
         "count": len(listings),
@@ -71,12 +64,6 @@ def _aggregate(listings: list[Listing], *, new_since: datetime | None) -> dict:
     }
 
 
-def _as_naive_utc(value: datetime) -> datetime:
-    if value.tzinfo is not None:
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
-    return value
-
-
 def record_snapshot(session: Session, *, when: datetime | None = None) -> int:
     """Write today's market snapshot rows. Returns the number of segments written.
 
@@ -85,18 +72,20 @@ def record_snapshot(session: Session, *, when: datetime | None = None) -> int:
     """
     from src.lux_monitor.scoring import passes_hard_filter
 
-    when = _as_naive_utc(when) if when else datetime.now(timezone.utc).replace(tzinfo=None)
+    when = as_naive_utc(when) if when else naive_utc_now()
     day_start, day_end = _day_bounds(when)
 
-    # "New since last snapshot": listings first seen after the most recent prior
-    # snapshot date (fallback: last 24h) — a supply-inflow signal.
+    # "New since last snapshot": a supply-inflow signal. The prior snapshot's
+    # snapshot_date is stored at MIDNIGHT, so to avoid re-counting everything
+    # that arrived *during* that prior day we start the window at the END of the
+    # prior snapshot's day (prior date + 1 day). Fallback: today's midnight.
     prior = (
         session.query(MarketSnapshot.snapshot_date)
         .filter(MarketSnapshot.snapshot_date < day_start)
         .order_by(MarketSnapshot.snapshot_date.desc())
         .first()
     )
-    new_since = prior[0] if prior else (day_start - timedelta(days=1))
+    new_since = (prior[0] + timedelta(days=1)) if prior else day_start
 
     active = (
         session.query(Listing)

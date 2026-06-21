@@ -140,6 +140,19 @@ SCORING_WEIGHTS: dict = {
 BED_BEST = 4
 
 
+# --- Mortgage assumptions (for the buy-vs-rent comparison) -----------------------
+# A buy listing's monthly mortgage payment (principal + interest) is estimated so
+# it can be compared directly with a rent. These are tunable defaults; the
+# estimate is the LOAN payment only — it excludes notaire/registration fees,
+# maintenance, the impôt foncier, and any down payment effects (we assume 100%
+# financing as requested). Real ownership cost is somewhat higher.
+MORTGAGE = {
+    "annual_rate_pct": 3.5,    # nominal annual interest rate
+    "term_years": 30,          # amortisation period
+    "financing_pct": 100,      # share of the price that is borrowed
+}
+
+
 def lu_country_config():
     """Build the Luxembourg :class:`CountryConfig` for the country registry.
 

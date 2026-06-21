@@ -11,7 +11,7 @@ in the terminal or a phone-friendly dashboard. Runs locally, **no paid APIs**.
 
 ## Repo facts
 - **Active branch:** `claude/nice-clarke-KfULG` (work has been committed/pushed here).
-- **Tests:** `pytest -q` → **132 passing**. Run before and after any change.
+- **Tests:** `pytest -q` → **153 passing**. Run before and after any change.
 - **Language/stack:** Python 3.11+, SQLite + Alembic, SQLAlchemy 2.0, Pydantic v2,
   httpx + BeautifulSoup, Rich, Streamlit (dashboard only).
 - **Everything current lives in** `src/lux_monitor/` + `src/scrapers/luxembourg/` +
@@ -26,12 +26,18 @@ in the terminal or a phone-friendly dashboard. Runs locally, **no paid APIs**.
 - **A full run harvests ~1,500 matching listings** (buy ≫ rent > furnished) across
   7 communes, in ~5 min.
 - **Pipeline** (`run_luxembourg`): scrape → save(+price history) → prune → dedup →
-  commute → analyze → score → snapshot.
+  commute → analyze → score → snapshot. The snapshot stage is **non-fatal** (a
+  missing `market_snapshots_lu` table logs a warning; the run still succeeds).
 - **Filters:** communes = Luxembourg, Strassen, Bertrange, Mamer, Walferdange,
-  Hesperange, Leudelange; rooms 3–8 (pièces ≈ bedrooms+1, so ≈ ≥2 bedrooms);
+  Hesperange, Leudelange; rooms 3–8 (pièces — lower bound uses bedrooms+1 estimate,
+  upper bound checks the evidenced count so big family homes aren't dropped);
   surface ≥ 80 m²; price caps buy ≤ €3M, rent ≤ €6,000/mo, furnished uncapped.
 - **Scoring (0–100, weights sum to 100):** bedrooms 18, drive 20, PT 15,
   foreign% 13, description 12, energy 8, garage 7, garden 7.
+- **Decision support:** `Listing.compare_price` is the single buy/rent price basis;
+  `finance.py` estimates monthly mortgage (buy) for a like-for-like €/mo vs rent;
+  `digest.buy_vs_rent_by_commune` (tested) powers the dashboard's break-even view;
+  `snapshots.py` records daily medians for trend charts.
 
 ## How athome scraping works (the hard-won part)
 - Listings come from the page's embedded `window.__INITIAL_STATE__` JSON, not HTML.

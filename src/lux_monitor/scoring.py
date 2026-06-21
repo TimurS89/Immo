@@ -64,26 +64,17 @@ class FilterResult:
     reasons: list[str] = field(default_factory=list)
 
 
-def _listing_price(listing: Listing) -> float | None:
-    """The price to compare against the cap: sale price for buy, monthly total
-    (rent + charges, falling back to rent) for rentals."""
-    if listing.listing_type == "buy":
-        return listing.price_eur
-    if listing.rent_total_eur is not None:
-        return listing.rent_total_eur
-    return listing.rent_eur
-
-
-def _effective_rooms(listing: Listing) -> int:
+def _effective_rooms(listing: Listing) -> int | None:
     """Total rooms (pièces). athome rarely reports rooms_total, so when it's
     missing estimate pièces as bedrooms + 1 (a living room): a "3-room" flat is
     2 bedrooms + living. This matches how LU listings advertise "X pièces" and
-    keeps "min 3 rooms" from silently meaning "min 3 bedrooms"."""
+    keeps "min 3 rooms" from silently meaning "min 3 bedrooms". Returns None when
+    neither rooms_total nor bedrooms is known (unknown, not "zero rooms")."""
     if listing.rooms_total:
         return listing.rooms_total
     if listing.bedrooms:
         return listing.bedrooms + 1
-    return listing.bedrooms
+    return None
 
 
 def passes_hard_filter(listing: Listing, filters: dict | None = None) -> FilterResult:
@@ -95,8 +86,15 @@ def passes_hard_filter(listing: Listing, filters: dict | None = None) -> FilterR
         reasons.append(f"commune {listing.commune!r} not in target set")
 
     rooms = _effective_rooms(listing)
-    if rooms is None or not (f["min_rooms"] <= rooms <= f["max_rooms"]):
-        reasons.append(f"rooms {rooms} outside [{f['min_rooms']}, {f['max_rooms']}]")
+    # Lower bound uses the (possibly +1) pièces estimate. Upper bound is checked
+    # against the *evidenced* room count (rooms_total when present, else bedrooms)
+    # so a large family home isn't rejected just because the +1 estimate crosses
+    # max_rooms (e.g. 8 bedrooms -> est. 9 pièces must still pass max 8).
+    rooms_for_max = listing.rooms_total or listing.bedrooms or rooms
+    if rooms is None or rooms < f["min_rooms"]:
+        reasons.append(f"rooms {rooms} < {f['min_rooms']}")
+    elif rooms_for_max is not None and rooms_for_max > f["max_rooms"]:
+        reasons.append(f"rooms {rooms_for_max} > {f['max_rooms']}")
 
     if listing.surface_m2 < f["min_surface_m2"]:
         reasons.append(f"surface {listing.surface_m2:.0f} m² < {f['min_surface_m2']}")
@@ -104,7 +102,7 @@ def passes_hard_filter(listing: Listing, filters: dict | None = None) -> FilterR
     # Per-type price ceiling (furnished is uncapped). An unknown price passes —
     # only a price strictly above the cap is rejected.
     cap = MAX_PRICE_EUR.get(listing.listing_type)
-    price = _listing_price(listing)
+    price = listing.compare_price
     if cap is not None and price is not None and price > cap:
         reasons.append(f"price {price:.0f} > {cap} cap for {listing.listing_type}")
 
@@ -192,7 +190,11 @@ def prune_nonmatching(session: Session) -> int:
     pruned = 0
     for listing in active:
         if not passes_hard_filter(listing).passed:
-            listing.mark_inactive()
+            # Deactivate WITHOUT touching last_seen_at: the listing may still be
+            # live on the portal — it just no longer matches our filter — so we
+            # must not pretend it was "last seen today" (that would corrupt
+            # days_on_market). mark_inactive() is for genuinely-delisted ones.
+            listing.is_active = False
             pruned += 1
     session.commit()
     if pruned:
@@ -245,11 +247,17 @@ def render_shortlist_table(rows: list[Listing]) -> None:
     from rich.console import Console
     from rich.table import Table
 
+    from src.lux_monitor.finance import monthly_mortgage
+
     table = Table(title="Luxembourg shortlist — top by score", show_lines=False)
-    for col in ("#", "Score", "Type", "Commune", "Bd", "m²", "€", "Drive", "PT", "Energy", "Gar", "Grd"):
-        table.add_column(col, justify="right" if col in {"Score", "Bd", "m²", "€", "Drive", "PT"} else "left")
+    cols = ("#", "Score", "Type", "Commune", "Bd", "m²", "€", "€/mo", "Drive", "PT", "Energy", "Gar", "Grd")
+    right = {"Score", "Bd", "m²", "€", "€/mo", "Drive", "PT"}
+    for col in cols:
+        table.add_column(col, justify="right" if col in right else "left")
     for i, l in enumerate(rows, 1):
-        price = l.price_eur if l.listing_type == "buy" else l.rent_total_eur
+        price = l.compare_price
+        # €/mo: rent for rentals; estimated mortgage payment for a buy.
+        monthly = monthly_mortgage(l.price_eur) if l.listing_type == "buy" else price
         table.add_row(
             str(i),
             f"{l.score_total:.1f}" if l.score_total is not None else "-",
@@ -258,6 +266,7 @@ def render_shortlist_table(rows: list[Listing]) -> None:
             str(l.bedrooms),
             f"{l.surface_m2:.0f}",
             f"{price:,.0f}" if price is not None else "-",
+            f"{monthly:,.0f}" if monthly is not None else "-",
             str(l.drive_time_rush_min if l.drive_time_rush_min is not None else "-"),
             str(l.pt_time_rush_min if l.pt_time_rush_min is not None else "-"),
             l.energy_class or "-",

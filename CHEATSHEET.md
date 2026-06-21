@@ -14,6 +14,30 @@ Fuller docs: `README.md` (overview), `RUNBOOK.md` (go-live), `SESSION_HANDOFF.md
 
 ---
 
+## 0. After a code update (do this when you've `git pull`ed new fixes)
+
+Whenever new code has been pushed (like the latest review fixes), bring your box
+up to date and rebuild the data so it reflects the new filters/scoring:
+
+```bash
+cd ~/immo && source .venv/bin/activate
+git pull                              # get the new code
+alembic upgrade head                  # apply any new DB migrations (safe)
+pytest -q                             # sanity: should say "153 passed"
+
+# Recommended after filter/scoring changes — fresh, fully-correct dataset:
+rm -f data/monitor.db && alembic upgrade head
+python -m src.lux_monitor run         # full harvest (~5 min)
+```
+
+Not sure if a re-scrape is needed? A plain `python -m src.lux_monitor run` is
+always safe — it updates in place and (since filters changed) **prunes** any
+stored listings that no longer match. The `rm data/monitor.db` is only to discard
+old trend history and start the snapshots clean; skip it if you want to keep the
+history you've already accumulated.
+
+---
+
 ## 1. Daily check — "did the 7am run work, and what's new?"
 
 **A. Did it run and succeed?** (no venv needed)
@@ -61,10 +85,24 @@ Open in a browser:
 - **Phone (same Wi-Fi):** http://192.168.1.13:8501
   (if that IP changed: `hostname -I | awk '{print $1}'` to get the current one)
 
-In the dashboard: filter by type/commune/min-score, sort (incl. **days** on market),
-**🆕 New only** toggle, **📉 price drops**, **📈 market trends** + rent-vs-buy compare,
-**🐌 long on the market**. Hit **🔄 Reload data** after a new run. Click **open ↗** to
-view an advert.
+In the dashboard, **Screen** (sidebar): rooms ≥, bedrooms ≥, surface m² ≥,
+**monthly € ≤** (rent or estimated mortgage), drive min ≤, plus type/commune/min-score.
+Sort by score / € / **€/mo** / **€/m²** / days. Sections: **🆕 New only**,
+**📉 price drops**, **📈 market trends** + rent-vs-buy compare, **🐌 long on the market**.
+Hit **🔄 Reload data** after a new run; **open ↗** to view an advert.
+
+The **€/mo** column puts buy and rent on one axis: for a buy it's the estimated
+**mortgage payment** (loan principal+interest). Adjust the rate/term/financing
+**live** with the sidebar **"Mortgage (buy €/mo)"** sliders — no re-scrape.
+(Defaults come from `MORTGAGE` in `config/luxembourg.py`: 3.5% / 30y / 100%.) It
+excludes notaire fees, maintenance and impôt foncier, so true ownership cost is
+a bit higher.
+
+The **⚖️ Buy vs rent — per commune** table shows median rent vs median mortgage
+and an approximate **break-even (years)** = upfront buying cost (~8% of price) ÷
+the monthly rent-minus-mortgage saving. Blank break-even = at this rate, buying
+costs more per month than renting (no cash-flow break-even) — slide the rate down
+to see where it flips.
 
 > Dashboard needs Streamlit once: `pip install streamlit`
 
@@ -99,6 +137,8 @@ Knobs in that file:
 - `HARD_FILTERS` — rooms 3–8, surface ≥ 80 m².
 - `MAX_PRICE_EUR` — buy ≤ €3M, rent ≤ €6000/mo, furnished uncapped.
 - `SCORING_WEIGHTS` — must sum to 100.
+- `MORTGAGE` — rate %, term years, financing % for the buy **€/mo** estimate
+  (used in the dashboard and the terminal shortlist; no re-scrape needed).
 
 > After a **filter** change, the next `run` also **prunes** listings that no longer
 > match (deactivates them) — so the DB self-cleans.
@@ -136,8 +176,11 @@ cp ~/immo/data/monitor.db ~/immo/data/monitor_backup_$(date +%F).db   # back up
 ```bash
 cd ~/immo && git pull            # get the latest code
 alembic upgrade head             # apply any new DB migrations (safe; no data loss)
-pytest -q                        # 135 passing = healthy
+pytest -q                        # 153 passing = healthy
 ```
+
+(See **§0** for the full "after a code update" routine, incl. an optional clean
+re-scrape.)
 
 ---
 
@@ -150,6 +193,7 @@ pytest -q                        # 135 passing = healthy
 | Counts look wrong / thin | look at the `athome funnel …` lines in the log: `total=` vs `kept=` per commune |
 | Dashboard won't load on phone | use `http://<PC-LAN-IP>:8501` (not localhost); IP via `hostname -I` |
 | `ModuleNotFoundError` | you forgot `source .venv/bin/activate` |
+| `snapshot stage failed` in log / no trends | you skipped a migration — run `alembic upgrade head` (the run itself still succeeds; snapshots are non-fatal) |
 | athome returns nothing | a commune's `q=` token may be stale — see SESSION_HANDOFF "How athome scraping works" |
 
 ---

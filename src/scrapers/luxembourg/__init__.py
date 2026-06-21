@@ -99,6 +99,17 @@ async def run_luxembourg(
     if score:
         totals.update(apply_scores(session))
     if snapshot:
-        # Record today's market aggregates (long-run trend layer).
-        totals["snapshot_segments"] = record_snapshot(session)
+        # Record today's market aggregates (long-run trend layer). Non-fatal: the
+        # scrape/score work above is already committed and valuable, so a snapshot
+        # failure (e.g. market_snapshots_lu missing because the migration wasn't
+        # applied) must not abort the whole run — log it and carry on.
+        try:
+            totals["snapshot_segments"] = record_snapshot(session)
+        except Exception as exc:
+            session.rollback()
+            logger.warning(
+                "snapshot stage failed (run `alembic upgrade head`?): %s", exc
+            )
+            logger.debug("snapshot traceback", exc_info=True)
+            totals["snapshot_error"] = str(exc)
     return totals
