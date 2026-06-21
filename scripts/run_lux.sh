@@ -24,6 +24,9 @@ mkdir -p logs
 ts="$(date +%Y-%m-%dT%H:%M:%S)"
 {
   echo "=== run_lux start $ts ==="
+  # Always snapshot the DB first, so a bad run (or an accidental wipe) is
+  # recoverable. Keeps the newest 14 in data/backups/.
+  python -m src.lux_monitor backup || true
   python -m src.lux_monitor run
   rc=$?
   echo "=== run_lux done $ts (exit $rc) ==="

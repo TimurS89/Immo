@@ -198,8 +198,9 @@ c3.metric("Total active", len(df))
 c4.metric("Best score", f"{view['score'].max():.0f}" if view["score"].notna().any() else "–")
 
 # --- table ---
-# drop internal helper columns (used only to derive €/mo live from the sliders)
-table = view.drop(columns=["buy_price", "rent_mo"], errors="ignore")
+# Drop internal helper columns: buy_price/rent_mo feed the live €/mo, and
+# mortgage/mo is identical to €/mo for buys (shown there) so it's redundant here.
+table = view.drop(columns=["buy_price", "rent_mo", "mortgage/mo"], errors="ignore")
 st.dataframe(
     table,
     use_container_width=True,
@@ -213,7 +214,6 @@ st.dataframe(
             help="monthly: the rent for rentals, the estimated mortgage for a buy"),
         "€/m²": st.column_config.NumberColumn("€/m²", format="%d",
             help="buy: price per m²; rent: monthly rent per m²"),
-        "mortgage/mo": st.column_config.NumberColumn("mortgage/mo", format="%d"),
         "m²": st.column_config.NumberColumn("m²", format="%d"),
         "days": st.column_config.NumberColumn("days", format="%d",
             help="days since WE first saw it (grows daily; 0 = first seen today)"),

@@ -93,6 +93,36 @@ def cmd_initdb(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backup(args: argparse.Namespace) -> int:
+    from src.lux_monitor.backup import backup_db
+
+    dest = backup_db()
+    if dest is None:
+        print("No database to back up yet.")
+        return 1
+    print(f"Backed up to {dest}")
+    return 0
+
+
+def cmd_restore(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from src.lux_monitor.backup import latest_backup, restore_db
+
+    src = Path(args.file) if args.file else latest_backup()
+    if src is None:
+        print("No backup found to restore from.")
+        return 1
+    print(f"This will restore {src} over the live database "
+          f"(the current DB is backed up first).")
+    if input("Type 'yes' to proceed: ").strip().lower() != "yes":
+        print("Aborted.")
+        return 1
+    dest = restore_db(src)
+    print(f"Restored {src} -> {dest}")
+    return 0
+
+
 def cmd_dashboard(args: argparse.Namespace) -> int:
     import importlib.util
     import os
@@ -151,6 +181,15 @@ def build_parser() -> argparse.ArgumentParser:
                       help="bind address (default 0.0.0.0 so a phone on the same Wi-Fi can reach it)")
     dash.add_argument("--port", type=int, default=8501)
     dash.set_defaults(func=cmd_dashboard)
+
+    bk = sub.add_parser("backup", parents=[common],
+                        help="snapshot data/monitor.db to data/backups/ (keeps the newest 14)")
+    bk.set_defaults(func=cmd_backup)
+
+    rs = sub.add_parser("restore", parents=[common],
+                        help="restore the newest backup (or --file) over the live DB")
+    rs.add_argument("--file", help="specific backup file (default: the most recent)")
+    rs.set_defaults(func=cmd_restore)
     return parser
 
 
