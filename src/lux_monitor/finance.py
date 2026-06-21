@@ -48,3 +48,36 @@ def monthly_mortgage(
     factor = (1 + monthly_rate) ** -n
     payment = loan * monthly_rate / (1 - factor)
     return round(payment, 2)
+
+
+# Upfront cost of buying in Luxembourg, as a fraction of the purchase price:
+# registration + transcription duties (~7%) plus notaire fees (~1%). This is the
+# cash you don't recover, used to estimate a rent-vs-buy break-even horizon.
+UPFRONT_BUY_COST_PCT = 8.0
+
+
+def break_even_years(
+    median_buy_price: float | None,
+    median_buy_mortgage: float | None,
+    median_rent: float | None,
+    *,
+    upfront_pct: float = UPFRONT_BUY_COST_PCT,
+) -> float | None:
+    """Rough years until buying beats renting, on monthly cash flow.
+
+    Upfront buying cost (≈ ``upfront_pct`` of the price) divided by the monthly
+    saving of a mortgage payment vs. an equivalent rent. Returns ``None`` if
+    inputs are missing, and a sentinel large number is avoided — if the mortgage
+    costs *more* per month than rent (no monthly saving) there is no break-even
+    on cash flow alone, so we return ``None``.
+
+    This is intentionally simple: it ignores equity build-up, price appreciation,
+    maintenance and tax — a directional indicator, not financial advice.
+    """
+    if not median_buy_price or not median_buy_mortgage or not median_rent:
+        return None
+    monthly_saving = median_rent - median_buy_mortgage
+    if monthly_saving <= 0:
+        return None  # buying costs more per month → no cash-flow break-even
+    upfront = median_buy_price * (upfront_pct / 100.0)
+    return round(upfront / monthly_saving / 12.0, 1)

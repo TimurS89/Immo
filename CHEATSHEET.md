@@ -68,9 +68,17 @@ Sort by score / € / **€/mo** / **€/m²** / days. Sections: **🆕 New only
 Hit **🔄 Reload data** after a new run; **open ↗** to view an advert.
 
 The **€/mo** column puts buy and rent on one axis: for a buy it's the estimated
-**mortgage payment** (loan principal+interest, per `MORTGAGE` in
-`config/luxembourg.py` — default 3.5% / 30y / 100% financing). It excludes notaire
-fees, maintenance and impôt foncier, so true ownership cost is a bit higher.
+**mortgage payment** (loan principal+interest). Adjust the rate/term/financing
+**live** with the sidebar **"Mortgage (buy €/mo)"** sliders — no re-scrape.
+(Defaults come from `MORTGAGE` in `config/luxembourg.py`: 3.5% / 30y / 100%.) It
+excludes notaire fees, maintenance and impôt foncier, so true ownership cost is
+a bit higher.
+
+The **⚖️ Buy vs rent — per commune** table shows median rent vs median mortgage
+and an approximate **break-even (years)** = upfront buying cost (~8% of price) ÷
+the monthly rent-minus-mortgage saving. Blank break-even = at this rate, buying
+costs more per month than renting (no cash-flow break-even) — slide the rate down
+to see where it flips.
 
 > Dashboard needs Streamlit once: `pip install streamlit`
 

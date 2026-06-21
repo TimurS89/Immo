@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.lux_monitor.finance import monthly_mortgage
+from src.lux_monitor.finance import break_even_years, monthly_mortgage
 
 
 def test_known_annuity_value():
@@ -40,3 +40,21 @@ def test_uses_config_defaults():
     # sensible positive number for a typical price.
     m = monthly_mortgage(1_000_000)
     assert m is not None and m > 0
+
+
+def test_break_even_basic():
+    # price 800k, mortgage 3000/mo, rent 3500/mo -> saving 500/mo,
+    # upfront 8% of 800k = 64k -> 64000/500/12 = ~10.7 yrs
+    be = break_even_years(800_000, 3000, 3500)
+    assert abs(be - 10.7) < 0.1
+
+
+def test_break_even_none_when_buy_costs_more():
+    # mortgage 4000 > rent 3500 -> no monthly saving -> None
+    assert break_even_years(800_000, 4000, 3500) is None
+
+
+def test_break_even_missing_inputs():
+    assert break_even_years(None, 3000, 3500) is None
+    assert break_even_years(800_000, None, 3500) is None
+    assert break_even_years(800_000, 3000, None) is None

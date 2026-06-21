@@ -18,7 +18,13 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 
+from config.luxembourg import MORTGAGE
 from src.lux_monitor.db import get_engine, session_scope
+from src.lux_monitor.finance import (
+    UPFRONT_BUY_COST_PCT,
+    break_even_years,
+    monthly_mortgage,
+)
 from src.lux_monitor.models import Listing
 
 st.set_page_config(page_title="LU Property Monitor", page_icon="🏠", layout="wide")
@@ -27,7 +33,6 @@ st.set_page_config(page_title="LU Property Monitor", page_icon="🏠", layout="w
 @st.cache_data(ttl=120)
 def load_rows() -> pd.DataFrame:
     from src.lux_monitor.digest import days_on_market
-    from src.lux_monitor.finance import monthly_mortgage
 
     with session_scope(get_engine()) as session:
         listings = (
@@ -38,10 +43,6 @@ def load_rows() -> pd.DataFrame:
         records = []
         for l in listings:
             price = l.price_eur if l.listing_type == "buy" else l.rent_total_eur
-            # Monthly cost that lets buy and rent be compared on one axis:
-            # estimated mortgage payment for a buy, the rent for a rental.
-            mortgage = monthly_mortgage(l.price_eur) if l.listing_type == "buy" else None
-            monthly = mortgage if l.listing_type == "buy" else price
             ppm2 = round(price / l.surface_m2) if price and l.surface_m2 else None
             records.append(
                 {
@@ -52,9 +53,10 @@ def load_rows() -> pd.DataFrame:
                     "bd": l.bedrooms,
                     "m²": l.surface_m2,
                     "€": price,
-                    "€/mo": monthly,
+                    # raw buy price (None for rentals) so the mortgage column can
+                    # be recomputed live from the rate slider without re-querying.
+                    "buy_price": l.price_eur if l.listing_type == "buy" else None,
                     "€/m²": ppm2,
-                    "mortgage/mo": mortgage,
                     "days": days_on_market(l),
                     "drive": l.drive_time_rush_min,
                     "PT": l.pt_time_rush_min,
@@ -132,6 +134,18 @@ types = st.sidebar.multiselect("Type", all_types, default=all_types)
 communes = st.sidebar.multiselect("Commune", all_communes, default=all_communes)
 min_score = st.sidebar.slider("Min score", 0, 100, 0)
 
+# --- mortgage assumptions (live; recompute buy €/mo without re-querying) ---
+st.sidebar.subheader("Mortgage (buy €/mo)")
+rate = st.sidebar.slider("Interest rate %", 0.0, 7.0, float(MORTGAGE["annual_rate_pct"]), 0.1)
+term = st.sidebar.slider("Term (years)", 10, 35, int(MORTGAGE["term_years"]), 1)
+fin = st.sidebar.slider("Financing %", 50, 100, int(MORTGAGE["financing_pct"]), 5)
+
+# Derive the live monthly cost (rent for rentals, mortgage for buys) + €/m².
+df["mortgage/mo"] = df["buy_price"].apply(
+    lambda p: monthly_mortgage(p, annual_rate_pct=rate, term_years=term, financing_pct=fin)
+)
+df["€/mo"] = df["mortgage/mo"].where(df["type"] == "buy", df["€"])
+
 st.sidebar.subheader("Screen")
 min_rooms = st.sidebar.number_input("Rooms ≥", min_value=0, max_value=12, value=0, step=1)
 min_bd = st.sidebar.number_input("Bedrooms ≥", min_value=0, max_value=10, value=0, step=1)
@@ -191,14 +205,13 @@ st.dataframe(
         "m²": st.column_config.NumberColumn("m²", format="%d"),
     },
 )
-from config.luxembourg import MORTGAGE  # noqa: E402  (display the assumptions used)
 st.caption(
     f"Source: data/monitor.db (read-only) · refresh after a new run · a blank score "
     f"means the listing falls outside the hard filter. **€/mo** lets you compare buy "
     f"vs rent on one axis: for a buy it's the estimated mortgage payment "
-    f"({MORTGAGE['annual_rate_pct']}% over {MORTGAGE['term_years']}y, "
-    f"{MORTGAGE['financing_pct']}% financing) — **loan principal+interest only**, "
-    f"excluding notaire fees, maintenance and impôt foncier (real ownership cost is higher)."
+    f"({rate:.1f}% over {term}y, {fin}% financing — adjust in the sidebar) — "
+    f"**loan principal+interest only**, excluding notaire fees, maintenance and "
+    f"impôt foncier (real ownership cost is higher)."
 )
 
 st.subheader("📉 Recent price drops (last 30 days)")
@@ -218,6 +231,44 @@ else:
             "score": st.column_config.NumberColumn("score", format="%.1f"),
         },
     )
+
+# --- buy vs rent, per commune (the core decision view) ----------------------
+st.subheader("⚖️ Buy vs rent — per commune")
+st.caption(
+    f"Median **rent** vs median estimated **mortgage** (at {rate:.1f}% / {term}y / "
+    f"{fin}% financing). “Break-even” ≈ upfront buying cost (~{int(UPFRONT_BUY_COST_PCT)}% "
+    f"of price) ÷ the monthly rent-minus-mortgage saving. Directional only — ignores "
+    f"equity, price growth, maintenance & tax."
+)
+
+cmp_rows = []
+for commune in sorted(df["commune"].dropna().unique()):
+    sub = df[df["commune"] == commune]
+    rent_sub = sub[sub["type"].isin(["rent", "furnished"])]["€/mo"].dropna()
+    buy_sub = sub[sub["type"] == "buy"]
+    med_rent = rent_sub.median() if not rent_sub.empty else None
+    med_mort = buy_sub["mortgage/mo"].dropna().median() if not buy_sub["mortgage/mo"].dropna().empty else None
+    med_price = buy_sub["buy_price"].dropna().median() if not buy_sub["buy_price"].dropna().empty else None
+    be = break_even_years(med_price, med_mort, med_rent)
+    cmp_rows.append({
+        "commune": commune,
+        "rentals": int(len(rent_sub)),
+        "buys": int(buy_sub["mortgage/mo"].notna().sum()),
+        "median rent €/mo": None if med_rent is None else round(med_rent),
+        "median mortgage €/mo": None if med_mort is None else round(med_mort),
+        "Δ buy−rent €/mo": None if (med_rent is None or med_mort is None) else round(med_mort - med_rent),
+        "break-even yrs": be,
+    })
+cmp_df = pd.DataFrame(cmp_rows)
+st.dataframe(
+    cmp_df, hide_index=True, use_container_width=True,
+    column_config={
+        "median rent €/mo": st.column_config.NumberColumn(format="%d"),
+        "median mortgage €/mo": st.column_config.NumberColumn(format="%d"),
+        "Δ buy−rent €/mo": st.column_config.NumberColumn(format="%d", help="positive = buying costs more per month"),
+        "break-even yrs": st.column_config.NumberColumn(format="%.1f", help="blank if buying costs more per month (no cash-flow break-even)"),
+    },
+)
 
 # --- market trends over time (the rent-vs-buy / now-vs-later view) ---
 st.subheader("📈 Market trends over time")
