@@ -51,10 +51,15 @@ def load_rows() -> pd.DataFrame:
                     "rooms": _effective_rooms(l),  # pièces — matches the scorer's filter
                     "bd": l.bedrooms,
                     "m²": l.surface_m2,
-                    "€": price,
+                    # "€" = the sale price for a buy, blank for rentals (their
+                    # monthly figure lives in €/mo, so the two columns never
+                    # show the same number twice).
+                    "€": l.price_eur if l.listing_type == "buy" else None,
                     # raw buy price (None for rentals) so the mortgage column can
                     # be recomputed live from the rate slider without re-querying.
                     "buy_price": l.price_eur if l.listing_type == "buy" else None,
+                    # the rental monthly (rent/total); None for buys. Feeds €/mo.
+                    "rent_mo": price if l.listing_type != "buy" else None,
                     "€/m²": ppm2,
                     "days": days_on_market(l),
                     "drive": l.drive_time_rush_min,
@@ -146,7 +151,7 @@ fin = st.sidebar.slider("Financing %", 50, 100, int(MORTGAGE["financing_pct"]), 
 df["mortgage/mo"] = df["buy_price"].apply(
     lambda p: monthly_mortgage(p, annual_rate_pct=rate, term_years=term, financing_pct=fin)
 )
-df["€/mo"] = df["mortgage/mo"].where(df["type"] == "buy", df["€"])
+df["€/mo"] = df["mortgage/mo"].where(df["type"] == "buy", df["rent_mo"])
 
 st.sidebar.subheader("Screen")
 min_rooms = st.sidebar.number_input("Rooms ≥", min_value=0, max_value=12, value=0, step=1)
@@ -193,18 +198,25 @@ c3.metric("Total active", len(df))
 c4.metric("Best score", f"{view['score'].max():.0f}" if view["score"].notna().any() else "–")
 
 # --- table ---
+# drop internal helper columns (used only to derive €/mo live from the sliders)
+table = view.drop(columns=["buy_price", "rent_mo"], errors="ignore")
 st.dataframe(
-    view,
+    table,
     use_container_width=True,
     hide_index=True,
     column_config={
         "link": st.column_config.LinkColumn("link", display_text="open ↗"),
         "score": st.column_config.NumberColumn("score", format="%.1f"),
-        "€": st.column_config.NumberColumn("€ (price/rent)", format="%d"),
-        "€/mo": st.column_config.NumberColumn("€/mo", format="%d", help="rent, or estimated mortgage for buy"),
-        "€/m²": st.column_config.NumberColumn("€/m²", format="%d"),
+        "€": st.column_config.NumberColumn("buy price / —", format="%d",
+            help="sale price for buy; blank for rentals (use €/mo for those)"),
+        "€/mo": st.column_config.NumberColumn("€/mo (rent or mortgage)", format="%d",
+            help="monthly: the rent for rentals, the estimated mortgage for a buy"),
+        "€/m²": st.column_config.NumberColumn("€/m²", format="%d",
+            help="buy: price per m²; rent: monthly rent per m²"),
         "mortgage/mo": st.column_config.NumberColumn("mortgage/mo", format="%d"),
         "m²": st.column_config.NumberColumn("m²", format="%d"),
+        "days": st.column_config.NumberColumn("days", format="%d",
+            help="days since WE first saw it (grows daily; 0 = first seen today)"),
     },
 )
 st.caption(
