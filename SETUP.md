@@ -71,6 +71,12 @@ alembic upgrade head        # builds data/monitor.db (LU + legacy DE/FR tables)
 
 Override the DB location with `LUX_MONITOR_DB_URL` if needed.
 
+> ⚠️ **`data/monitor.db` is precious** — it accumulates price history, daily
+> market snapshots, and the days-on-market clock that re-scraping **cannot**
+> rebuild. **Never `rm` it.** Back up / restore with
+> `python -m src.lux_monitor backup` / `restore` (the cron wrapper backs up before
+> every run). See `CHEATSHEET.md §7` and the `protect-database` skill.
+
 ## 6. Run the tests
 
 ```bash
