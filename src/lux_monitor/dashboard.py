@@ -201,6 +201,15 @@ c4.metric("Best score", f"{view['score'].max():.0f}" if view["score"].notna().an
 # Drop internal helper columns: buy_price/rent_mo feed the live €/mo, and
 # mortgage/mo is identical to €/mo for buys (shown there) so it's redundant here.
 table = view.drop(columns=["buy_price", "rent_mo", "mortgage/mo"], errors="ignore")
+# Explicit column order: €/mo right after the buy price; the secondary fields
+# (garage, garden, highlights, flags, portal, first seen) come AFTER the link.
+COLUMN_ORDER = [
+    "score", "type", "commune", "rooms", "bd", "m²",
+    "€", "€/mo", "€/m²", "days", "drive", "PT", "energy", "link",
+    "garage", "garden", "highlights", "flags", "portal", "first seen",
+]
+ordered = [c for c in COLUMN_ORDER if c in table.columns]
+table = table[ordered + [c for c in table.columns if c not in ordered]]
 st.dataframe(
     table,
     use_container_width=True,
