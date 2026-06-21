@@ -22,19 +22,18 @@ up to date and rebuild the data so it reflects the new filters/scoring:
 ```bash
 cd ~/immo && source .venv/bin/activate
 git pull                              # get the new code
-alembic upgrade head                  # apply any new DB migrations (safe)
-pytest -q                             # sanity: should say "153 passed"
-
-# Recommended after filter/scoring changes — fresh, fully-correct dataset:
-rm -f data/monitor.db && alembic upgrade head
-python -m src.lux_monitor run         # full harvest (~5 min)
+alembic upgrade head                  # apply any new DB migrations (safe, no data loss)
+pytest -q                             # sanity: "1 skipped, … passed"
+python -m src.lux_monitor run         # in-place refresh (~5 min); applies new filters
 ```
 
-Not sure if a re-scrape is needed? A plain `python -m src.lux_monitor run` is
-always safe — it updates in place and (since filters changed) **prunes** any
-stored listings that no longer match. The `rm data/monitor.db` is only to discard
-old trend history and start the snapshots clean; skip it if you want to keep the
-history you've already accumulated.
+A plain `run` is **always** the right move after a code/filter change: it updates
+listings in place, **prunes** anything that no longer matches, and **keeps your
+accumulated history** (price history, days-on-market, trend snapshots).
+
+> 🚫 **Do NOT `rm data/monitor.db`.** Wiping it permanently loses that history and
+> resets days-on-market to 0. See **§7** — there's a `backup`/`restore` command if
+> you ever need a safety net.
 
 ---
 
@@ -157,17 +156,27 @@ one — remove the cron line if you switch.
 
 ---
 
-## 7. The database & backups
+## 7. The database — back up, never wipe
 
-One SQLite file holds everything: **`~/immo/data/monitor.db`**.
+One SQLite file holds everything: **`~/immo/data/monitor.db`** — every listing,
+its **price history**, and the **daily market snapshots**. Re-scraping CANNOT
+recover this history (athome only shows the current market), so the file is
+precious.
+
 ```bash
-cp ~/immo/data/monitor.db ~/immo/data/monitor_backup_$(date +%F).db   # back up
+python -m src.lux_monitor backup       # snapshot -> data/backups/ (keeps newest 14)
+python -m src.lux_monitor restore      # restore the newest backup (asks to confirm)
+python -m src.lux_monitor restore --file data/backups/monitor-<ts>.db
 ```
+- The **daily cron backs up automatically** before every run — you're protected.
 - Listings that vanish are **deactivated, not deleted** (history kept).
 - `market_snapshots_lu` accumulates one row per (date, type, commune) per run —
-  this is your long-run trend; don't delete the DB if you want to keep it.
-- To start completely fresh (loses all history):
-  `rm ~/immo/data/monitor.db && alembic upgrade head`
+  your long-run trend.
+
+> 🚫 **Never `rm data/monitor.db`.** It permanently resets the days-on-market clock
+> and the trend history to zero. A plain `python -m src.lux_monitor run` already
+> refreshes listings in place and prunes non-matches — that's what you want, not a
+> wipe. (If you ever *truly* must start over: `backup` first, then delete.)
 
 ---
 
