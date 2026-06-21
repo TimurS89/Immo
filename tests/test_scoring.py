@@ -62,10 +62,17 @@ def test_passes_default():
 def test_knockouts():
     # rooms = bedrooms+1 when rooms_total missing, so 1 bed -> 2 pièces < 3 -> fail
     assert not passes_hard_filter(_orm(bedrooms=1)).passed
-    assert not passes_hard_filter(_orm(bedrooms=8)).passed   # 9 pièces > 8
     assert not passes_hard_filter(_orm(surface=70)).passed   # < 80 m²
     res = passes_hard_filter(_orm(commune="Esch-sur-Alzette"))
     assert not res.passed and any("not in target" in r for r in res.reasons)
+
+
+def test_large_family_home_passes_upper_bound():
+    # Regression: an 8-bedroom home (no rooms_total) estimates 9 pièces, but the
+    # upper bound is checked on the EVIDENCED count (8 bedrooms), so it must pass.
+    assert passes_hard_filter(_orm(bedrooms=8)).passed
+    # genuinely too many rooms (rooms_total reported) is still rejected
+    assert not passes_hard_filter(_orm(bedrooms=2, rooms_total=9)).passed
 
 
 def test_rooms_uses_total_then_estimates_from_bedrooms():

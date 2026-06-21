@@ -13,6 +13,8 @@ where r is the monthly rate and n the number of monthly payments.
 
 from __future__ import annotations
 
+import math
+
 from config.luxembourg import MORTGAGE
 
 
@@ -25,11 +27,13 @@ def monthly_mortgage(
 ) -> float | None:
     """Estimated monthly mortgage payment for a purchase ``price``.
 
-    Returns ``None`` when the price is unknown. Falls back to the ``MORTGAGE``
-    config defaults for any unset parameter. A 0% rate degrades to a straight
-    principal/term split (no division by zero).
+    Returns ``None`` when the price is unknown/invalid. Falls back to the
+    ``MORTGAGE`` config defaults for any unset parameter. A 0% rate degrades to a
+    straight principal/term split (no division by zero).
     """
-    if not price or price <= 0:
+    # Guard None AND NaN: pandas .apply over a mixed int/None column yields NaN
+    # (not None) for missing prices, and `not nan` / `nan <= 0` are both False.
+    if price is None or (isinstance(price, float) and math.isnan(price)) or price <= 0:
         return None
 
     rate_pct = MORTGAGE["annual_rate_pct"] if annual_rate_pct is None else annual_rate_pct
@@ -37,7 +41,7 @@ def monthly_mortgage(
     fin_pct = MORTGAGE["financing_pct"] if financing_pct is None else financing_pct
 
     loan = price * (fin_pct / 100.0)
-    n = int(years * 12)
+    n = round(years * 12)  # whole months; round (not truncate) a fractional term
     if n <= 0:
         return None
 
@@ -56,28 +60,36 @@ def monthly_mortgage(
 UPFRONT_BUY_COST_PCT = 8.0
 
 
+# Beyond this many years, a "break-even" is noise (a marginal monthly saving
+# divided into upfront cost yields centuries) — report None instead.
+BREAK_EVEN_MAX_YEARS = 50.0
+
+
 def break_even_years(
     median_buy_price: float | None,
     median_buy_mortgage: float | None,
     median_rent: float | None,
     *,
     upfront_pct: float = UPFRONT_BUY_COST_PCT,
+    max_years: float = BREAK_EVEN_MAX_YEARS,
 ) -> float | None:
     """Rough years until buying beats renting, on monthly cash flow.
 
     Upfront buying cost (≈ ``upfront_pct`` of the price) divided by the monthly
     saving of a mortgage payment vs. an equivalent rent. Returns ``None`` if
-    inputs are missing, and a sentinel large number is avoided — if the mortgage
-    costs *more* per month than rent (no monthly saving) there is no break-even
-    on cash flow alone, so we return ``None``.
+    inputs are missing/NaN, if the mortgage costs *more* per month than rent (no
+    cash-flow break-even), or if the horizon exceeds ``max_years`` (a marginal
+    saving yields an absurd multi-century number that isn't a meaningful signal).
 
-    This is intentionally simple: it ignores equity build-up, price appreciation,
-    maintenance and tax — a directional indicator, not financial advice.
+    Intentionally simple: ignores equity build-up, price appreciation, maintenance
+    and tax — a directional indicator, not financial advice.
     """
-    if not median_buy_price or not median_buy_mortgage or not median_rent:
+    vals = (median_buy_price, median_buy_mortgage, median_rent)
+    if any(v is None or (isinstance(v, float) and math.isnan(v)) for v in vals):
         return None
     monthly_saving = median_rent - median_buy_mortgage
     if monthly_saving <= 0:
         return None  # buying costs more per month → no cash-flow break-even
     upfront = median_buy_price * (upfront_pct / 100.0)
-    return round(upfront / monthly_saving / 12.0, 1)
+    years = round(upfront / monthly_saving / 12.0, 1)
+    return years if years <= max_years else None

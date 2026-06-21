@@ -82,7 +82,9 @@ def test_athome_search_url_uses_hkey_and_server_side_filters():
     url = AtHomeScraper(AppConfig()).search_url("Strassen", "rent", 2)
     assert "q=e7677861" in url and "tr=rent" in url and "page=2" in url
     # server-side filters derived from HARD_FILTERS (min_rooms 3 -> 2 bedrooms, 80 m²)
-    assert "bedrooms_min=2" in url and "srf_min=80" in url
+    # loose server-side bedroom floor (min_rooms-2=1) so it can't hide valid
+    # low-bedroom/high-room flats; surface floor matches exactly
+    assert "bedrooms_min=1" in url and "srf_min=80" in url
 
 
 # --- immotop (EN/FR, comma-thousands gotcha) ----------------------------------

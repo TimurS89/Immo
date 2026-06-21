@@ -93,3 +93,27 @@ def test_snapshot_series_accumulates(lux_session):
     dates = [r.snapshot_date for r in lux_session.query(MarketSnapshot).filter_by(
         listing_type="buy", commune="Luxembourg").order_by(MarketSnapshot.snapshot_date).all()]
     assert len(dates) == 2  # a 2-point time series
+
+
+def test_new_count_excludes_prior_day_arrivals(lux_session):
+    """new_count must count only listings first seen AFTER the prior snapshot day,
+    not everything from that day's midnight (the over-count bug)."""
+    from datetime import datetime
+
+    # A listing first seen on day 1 at 14:00.
+    old = _orm("buy", "Luxembourg", surface=120, price=1_000_000)
+    old.first_seen_at = datetime(2026, 6, 1, 14, 0)
+    lux_session.add(old)
+    lux_session.commit()
+
+    # Day-1 snapshot.
+    record_snapshot(lux_session, when=datetime(2026, 6, 1, 18, 0))
+
+    # Day-2 snapshot, no new arrivals.
+    record_snapshot(lux_session, when=datetime(2026, 6, 2, 18, 0))
+    seg = lux_session.query(MarketSnapshot).filter_by(
+        listing_type="buy", commune="Luxembourg",
+        snapshot_date=datetime(2026, 6, 2)).one()
+    # 'old' arrived during day 1 (already counted then) -> NOT new on day 2.
+    assert seg.new_count == 0
+    assert seg.count == 1  # still in the market

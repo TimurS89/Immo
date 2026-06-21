@@ -20,12 +20,10 @@ import streamlit as st
 
 from config.luxembourg import MORTGAGE
 from src.lux_monitor.db import get_engine, session_scope
-from src.lux_monitor.finance import (
-    UPFRONT_BUY_COST_PCT,
-    break_even_years,
-    monthly_mortgage,
-)
+from src.lux_monitor.digest import buy_vs_rent_by_commune
+from src.lux_monitor.finance import UPFRONT_BUY_COST_PCT, monthly_mortgage
 from src.lux_monitor.models import Listing
+from src.lux_monitor.snapshots import ALL_COMMUNES
 
 st.set_page_config(page_title="LU Property Monitor", page_icon="🏠", layout="wide")
 
@@ -33,6 +31,7 @@ st.set_page_config(page_title="LU Property Monitor", page_icon="🏠", layout="w
 @st.cache_data(ttl=120)
 def load_rows() -> pd.DataFrame:
     from src.lux_monitor.digest import days_on_market
+    from src.lux_monitor.scoring import _effective_rooms
 
     with session_scope(get_engine()) as session:
         listings = (
@@ -42,14 +41,14 @@ def load_rows() -> pd.DataFrame:
         )
         records = []
         for l in listings:
-            price = l.price_eur if l.listing_type == "buy" else l.rent_total_eur
+            price = l.compare_price
             ppm2 = round(price / l.surface_m2) if price and l.surface_m2 else None
             records.append(
                 {
                     "score": l.score_total,
                     "type": l.listing_type,
                     "commune": l.commune,
-                    "rooms": l.rooms_total or l.bedrooms,
+                    "rooms": _effective_rooms(l),  # pièces — matches the scorer's filter
                     "bd": l.bedrooms,
                     "m²": l.surface_m2,
                     "€": price,
@@ -115,7 +114,10 @@ def load_price_drops() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-df = load_rows()
+# .copy() because we add live, slider-derived columns (mortgage/mo, €/mo) below;
+# load_rows() is @st.cache_data, so mutating its return value in place would
+# write slider-dependent data onto the shared cached object.
+df = load_rows().copy()
 st.title("🏠 Luxembourg Property Monitor")
 
 if df.empty:
@@ -241,25 +243,22 @@ st.caption(
     f"equity, price growth, maintenance & tax."
 )
 
-cmp_rows = []
-for commune in sorted(df["commune"].dropna().unique()):
-    sub = df[df["commune"] == commune]
-    rent_sub = sub[sub["type"].isin(["rent", "furnished"])]["€/mo"].dropna()
-    buy_sub = sub[sub["type"] == "buy"]
-    med_rent = rent_sub.median() if not rent_sub.empty else None
-    med_mort = buy_sub["mortgage/mo"].dropna().median() if not buy_sub["mortgage/mo"].dropna().empty else None
-    med_price = buy_sub["buy_price"].dropna().median() if not buy_sub["buy_price"].dropna().empty else None
-    be = break_even_years(med_price, med_mort, med_rent)
-    cmp_rows.append({
-        "commune": commune,
-        "rentals": int(len(rent_sub)),
-        "buys": int(buy_sub["mortgage/mo"].notna().sum()),
-        "median rent €/mo": None if med_rent is None else round(med_rent),
-        "median mortgage €/mo": None if med_mort is None else round(med_mort),
-        "Δ buy−rent €/mo": None if (med_rent is None or med_mort is None) else round(med_mort - med_rent),
-        "break-even yrs": be,
-    })
-cmp_df = pd.DataFrame(cmp_rows)
+# Aggregated by the tested digest helper (same rate/term/financing as the
+# sliders), so the dashboard is a thin renderer of testable logic.
+with session_scope(get_engine()) as _s:
+    _bvr = buy_vs_rent_by_commune(_s, annual_rate_pct=rate, term_years=term, financing_pct=fin)
+cmp_df = pd.DataFrame([
+    {
+        "commune": r.commune,
+        "rentals": r.n_rent,
+        "buys": r.n_buy,
+        "median rent €/mo": r.median_rent,
+        "median mortgage €/mo": r.median_mortgage,
+        "Δ buy−rent €/mo": r.delta,
+        "break-even yrs": r.break_even_years,
+    }
+    for r in _bvr
+])
 st.dataframe(
     cmp_df, hide_index=True, use_container_width=True,
     column_config={
@@ -280,9 +279,10 @@ else:
     t_opts = sorted(snaps["type"].unique())
     t_sel = tcol.selectbox("Type", t_opts, key="trend_type")
     communes_for_type = sorted(snaps[snaps["type"] == t_sel]["commune"].unique())
-    default_commune = "All" if "All" in communes_for_type else communes_for_type[0]
-    c_sel = ccol.selectbox("Commune", communes_for_type,
-                           index=communes_for_type.index(default_commune), key="trend_commune")
+    default_idx = communes_for_type.index(ALL_COMMUNES) if ALL_COMMUNES in communes_for_type else 0
+    # No widget key here: the option list shrinks when Type changes, and a
+    # persisted stale commune value (not in the new options) would raise.
+    c_sel = ccol.selectbox("Commune", communes_for_type, index=default_idx)
     metric = mcol.selectbox(
         "Metric", ["median €", "median €/m²", "count", "new", "median m²"], key="trend_metric")
 
@@ -293,7 +293,10 @@ else:
     )
     if len(series) < 2:
         st.info(f"Only {len(series)} snapshot so far for this segment — the line appears once there are ≥2 daily runs.")
-    st.line_chart(series[metric], height=320)
+    if series[metric].notna().any():
+        st.line_chart(series[metric], height=320)
+    else:
+        st.caption(f"No '{metric}' data for this segment yet.")
     latest = series.iloc[-1]
     k1, k2, k3 = st.columns(3)
     k1.metric("Listings now", int(latest["count"]))
@@ -305,24 +308,28 @@ else:
         "Each point is one run. Snapshots are recorded automatically every run."
     )
 
-    # Compare the SAME metric across types (rent vs furnished vs buy) for a commune.
-    st.markdown("**Compare across types** (same commune & metric)")
-    cmp_metric = "median €/m²"
+    # Compare price TREND across types (rent vs furnished vs buy) for a commune.
+    st.markdown("**Compare price trend across types** (same commune)")
     cmp_communes = sorted(snaps["commune"].unique())
-    cmp_default = "All" if "All" in cmp_communes else cmp_communes[0]
-    cmp_commune = st.selectbox("Commune", cmp_communes,
-                               index=cmp_communes.index(cmp_default), key="cmp_commune")
+    cmp_default_idx = cmp_communes.index(ALL_COMMUNES) if ALL_COMMUNES in cmp_communes else 0
+    cmp_commune = st.selectbox("Commune", cmp_communes, index=cmp_default_idx, key="cmp_commune")
     wide = (
         snaps[snaps["commune"] == cmp_commune]
-        .pivot_table(index="date", columns="type", values=cmp_metric, aggfunc="last")
+        .pivot_table(index="date", columns="type", values="median €/m²", aggfunc="last")
         .sort_index()
     )
+    # Buy €/m² (purchase, thousands) and rent €/m² (monthly, tens) live on wildly
+    # different scales, so plotting raw values on one axis flattens the rent line.
+    # Index each series to 100 at its first observed point: the chart then shows
+    # RELATIVE movement (% change), which is the comparable rent-vs-buy signal.
+    indexed = wide.apply(lambda s: s / s.dropna().iloc[0] * 100 if s.notna().any() else s)
     if len(wide) < 2:
         st.info("The comparison line fills in once there are ≥2 daily runs.")
-    st.line_chart(wide, height=320)
+    st.line_chart(indexed, height=320)
     st.caption(
-        f"{cmp_metric} by type in **{cmp_commune}** over time — buy €/m² vs rent €/m² is the "
-        "core rent-vs-buy signal. (Rent €/m² is monthly; buy €/m² is the purchase price.)"
+        f"Median €/m² by type in **{cmp_commune}**, indexed to 100 at each series' first "
+        "point — so buy and rent trends are comparable despite very different absolute "
+        "scales. Rising buy vs flat rent ⇒ buying is getting relatively more expensive."
     )
 
 # --- slow movers (days on market) -------------------------------------------

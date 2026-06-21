@@ -58,3 +58,20 @@ def test_break_even_missing_inputs():
     assert break_even_years(None, 3000, 3500) is None
     assert break_even_years(800_000, None, 3500) is None
     assert break_even_years(800_000, 3000, None) is None
+
+
+def test_monthly_mortgage_rejects_nan():
+    # pandas .apply over a mixed int/None column yields NaN, not None
+    assert monthly_mortgage(float("nan")) is None
+
+
+def test_break_even_clamped_for_marginal_saving():
+    # €1/mo saving on a €1.18M home would be ~7867 years -> clamped to None
+    assert break_even_years(1_180_000, 3999, 4000) is None
+    # a healthy saving still returns a number
+    assert break_even_years(800_000, 3000, 3500) is not None
+
+
+def test_break_even_rejects_nan():
+    assert break_even_years(float("nan"), 3000, 3500) is None
+    assert break_even_years(800_000, float("nan"), 3500) is None

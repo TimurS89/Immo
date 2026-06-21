@@ -88,16 +88,21 @@ class AtHomeScraper(LuxBaseScraper):
         COMMUNE_HKEYS. ``loc=`` is cosmetic (athome ignores it) but kept so the
         URL is human-readable in logs.
         Surface and bedroom minimums are pushed SERVER-SIDE via athome's
-        ``srf_min`` / ``bedrooms_min`` params (derived from HARD_FILTERS), so a
-        commune returns only qualifying listings instead of its whole inventory —
-        a few dozen pages for the capital instead of ~200. The local hard filter
-        still runs (belt-and-suspenders), so a param change can't leak rejects.
+        ``srf_min`` / ``bedrooms_min`` params (derived from HARD_FILTERS) to shrink
+        the result set, while the local hard filter does the precise screening.
+
+        The server-side ``bedrooms_min`` is deliberately LOOSE: our rooms filter
+        is on *pièces* (rooms_total when reported, else bedrooms+1), and a
+        qualifying "3-pièce" flat can have as few as 1 bedroom. So we set
+        ``bedrooms_min = min_rooms - 2`` — never tighter than the local filter, so
+        it can only trim listings we'd reject anyway, never hide valid ones.
+        ``srf_min`` exactly matches the local surface floor (same unit), so it's
+        safe to send as-is.
         """
         params = TRANSACTION_PARAMS.get(listing_type, TRANSACTION_PARAMS["buy"])
         hkey = COMMUNE_HKEYS.get(commune, "")
         slug = commune.lower().replace(" ", "-")
-        # min bedrooms = rooms floor - 1 (a "3-pièce" flat is 2 bedrooms + living)
-        bedrooms_min = max(0, int(HARD_FILTERS["min_rooms"]) - 1)
+        bedrooms_min = max(0, int(HARD_FILTERS["min_rooms"]) - 2)
         srf_min = int(HARD_FILTERS["min_surface_m2"])
         return (
             f"{self.BASE_URL}/srp/?{params}&q={hkey}&loc=L7-{slug}"

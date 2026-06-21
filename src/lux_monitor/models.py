@@ -191,9 +191,31 @@ class Listing(Base):
         self.last_seen_at = when or _utcnow()
 
     def touch(self, *, when: datetime | None = None) -> None:
-        """Mark the listing as seen again in the current run (re-activates it)."""
+        """Mark the listing as seen again in the current run (re-activates it).
+
+        If it had previously been delisted, this is a *relisting*: reset
+        ``first_seen_at`` so "days on market" measures the current continuous
+        spell, not a stale original sighting from months ago.
+        """
+        when = when or _utcnow()
+        if self.is_active is False:
+            self.first_seen_at = when
         self.is_active = True
-        self.last_seen_at = when or _utcnow()
+        self.last_seen_at = when
+
+    @property
+    def compare_price(self) -> float | None:
+        """The price used everywhere a buy and a rental must be compared.
+
+        Sale price for buy; monthly total (rent + charges, falling back to bare
+        rent) for rentals. Single source of truth — scoring, snapshots, dedup,
+        the scrapers and the dashboard all use this so the bases never drift.
+        """
+        if self.listing_type == "buy":
+            return self.price_eur
+        if self.rent_total_eur is not None:
+            return self.rent_total_eur
+        return self.rent_eur
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return (
