@@ -11,7 +11,8 @@ in the terminal or a phone-friendly dashboard. Runs locally, **no paid APIs**.
 
 ## Repo facts
 - **Active branch:** `claude/nice-clarke-KfULG` (work has been committed/pushed here).
-- **Tests:** `pytest -q` → **153 passing**. Run before and after any change.
+- **Tests:** `pytest -q` → **158 passing** (legacy `test_analysis.py` skips when
+  `thefuzz` isn't installed). Run before and after any change.
 - **Language/stack:** Python 3.11+, SQLite + Alembic, SQLAlchemy 2.0, Pydantic v2,
   httpx + BeautifulSoup, Rich, Streamlit (dashboard only).
 - **Everything current lives in** `src/lux_monitor/` + `src/scrapers/luxembourg/` +
@@ -65,12 +66,19 @@ python -m src.lux_monitor dashboard           # browser UI (needs: pip install s
 Daily automation: `scripts/run_lux.sh` via cron (see RUNBOOK §4). It logs to
 `logs/lux_run.log`. Note: cron only fires while the PC is awake.
 
-## Data / persistence
+## Data / persistence — PRECIOUS, see the `protect-database` skill
 - One SQLite file: `data/monitor.db` (git-ignored). `LUX_MONITOR_DB_URL` overrides.
 - `listings` (+ `price_history_entries`): vanished listings are **deactivated**,
   not deleted — history is preserved.
 - `market_snapshots_lu`: one row per (date, type, commune) per run — the trend
   layer. Dashboard "📈 Market trends" charts it; needs ≥2 runs to show a line.
+- **🚫 Never `rm data/monitor.db`** — re-scraping can't recover price history,
+  trend snapshots or the days-on-market clock. A plain `run` refreshes in place.
+- **Backups:** `backup.py` + CLI `backup`/`restore`; `scripts/run_lux.sh` backs up
+  to `data/backups/` (git-ignored, keeps 14) **before every run**. There's a
+  `.claude/skills/protect-database` skill enforcing the no-wipe rule.
+- **Price floor:** `MIN_PRICE_EUR` (config) drops portal data errors (e.g. a
+  €1,111 "sale") so junk never reaches the shortlist.
 
 ## Recommended next steps (rough priority)
 1. **Gmail daily digest** — the main missing feature. `digest.py` already computes

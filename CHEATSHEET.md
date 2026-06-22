@@ -135,6 +135,7 @@ Knobs in that file:
 - `TARGET_COMMUNES` — the 7 communes (+ a `COMMUNE_HKEYS` token each for athome).
 - `HARD_FILTERS` — rooms 3–8, surface ≥ 80 m².
 - `MAX_PRICE_EUR` — buy ≤ €3M, rent ≤ €6000/mo, furnished uncapped.
+- `MIN_PRICE_EUR` — floors that drop portal junk (buy €150k, rent €1000, furn €800).
 - `SCORING_WEIGHTS` — must sum to 100.
 - `MORTGAGE` — rate %, term years, financing % for the buy **€/mo** estimate
   (used in the dashboard and the terminal shortlist; no re-scrape needed).
@@ -185,7 +186,7 @@ python -m src.lux_monitor restore --file data/backups/monitor-<ts>.db
 ```bash
 cd ~/immo && git pull            # get the latest code
 alembic upgrade head             # apply any new DB migrations (safe; no data loss)
-pytest -q                        # 153 passing = healthy
+pytest -q                        # healthy = "1 skipped, 158 passed"
 ```
 
 (See **§0** for the full "after a code update" routine, incl. an optional clean

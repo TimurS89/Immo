@@ -63,7 +63,7 @@ Every run, the tool:
 
 ## Current status
 
-The pipeline is built, **tested (153 passing tests)**, and **running live against
+The pipeline is built, **tested (158 passing tests)**, and **running live against
 athome.lu** end‑to‑end. A full run currently harvests ~1,500 matching listings
 across the three types in the 7 target communes.
 
@@ -80,9 +80,11 @@ across the three types in the 7 target communes.
 | Description analysis (offline FR/DE/EN heuristics) | ✅ Done |
 | Hard filter + price caps + weighted scoring | ✅ Done |
 | Market snapshots + dashboard trend charts | ✅ Done |
+| Buy‑vs‑rent mortgage comparison + break‑even | ✅ Done |
 | Orchestrator CLI (`python -m src.lux_monitor`) | ✅ Done |
 | Browser dashboard (Streamlit, phone‑friendly) | ✅ Done |
 | Cron wrapper for daily scheduling | ✅ Done |
+| DB backup / restore (auto before each run) | ✅ Done |
 | Push notifications (email / Telegram) | ❌ Not built |
 
 **In practice:** a real run scrapes **athome.lu** (the dominant LU portal), stores
@@ -171,11 +173,19 @@ python -m src.lux_monitor run --no-scrape
 # Explain why one listing got the score it did
 python -m src.lux_monitor.scoring --explain <listing_id>
 
-# Browser dashboard (filter/sort, price drops, market trends) — phone-friendly
+# Browser dashboard (filter/sort, price drops, market trends, buy-vs-rent) — phone-friendly
 python -m src.lux_monitor dashboard
 #   PC:    http://localhost:8501
 #   phone: http://<this-machine-LAN-IP>:8501   (same Wi-Fi)
+
+# Back up / restore the database (the cron job also backs up before every run)
+python -m src.lux_monitor backup
+python -m src.lux_monitor restore        # newest backup; asks to confirm
 ```
+
+> ⚠️ **Never `rm data/monitor.db`.** It permanently loses the price history,
+> trend snapshots and days-on-market clock that re-scraping can't rebuild. A plain
+> `run` refreshes in place. See `CHEATSHEET.md §7`.
 
 **Reading the output:** the run prints a one‑line summary like
 `pipeline: new=… pruned=… scored=… snapshot_segments=…`, and a per‑commune
@@ -207,7 +217,9 @@ constants (no YAML to wrangle):
   Bertrange, Mamer, Walferdange, Hesperange, Leudelange — each with its
   foreign‑resident %, train flag, and centre coordinates (for the commute estimate).
 - **`HARD_FILTERS`** — the knockouts: **3–8 rooms, surface ≥ 80 m², commune**.
-- **`MAX_PRICE_EUR`** — per‑type price caps (buy €3M, rent €6,000, furnished `None`).
+- **`MAX_PRICE_EUR`** — per‑type price ceilings (buy €3M, rent €6,000, furnished `None`).
+- **`MIN_PRICE_EUR`** — per‑type price floors that drop portal data errors (a
+  €1,111 "sale", a €5/mo "rent"): buy €150k, rent €1,000, furnished €800.
 - **`SCORING_WEIGHTS`** — the soft‑score weights (must sum to 100): bedrooms,
   commute (drive + PT), foreign %, description quality, energy, garage, garden.
 - **`COMMUNE_HKEYS`** — athome's location‑filter token per commune (captured from
@@ -238,7 +250,8 @@ src/lux_monitor/
   snapshots.py                # daily market aggregates (trend layer)
   timeutil.py                 # shared naive-UTC datetime helpers
   dashboard.py                # Streamlit browser dashboard
-  __main__.py                 # the `python -m src.lux_monitor` CLI (run/shortlist/dashboard/init-db)
+  backup.py                   # DB backup / restore (protect the accumulated history)
+  __main__.py                 # CLI: run / shortlist / dashboard / backup / restore / init-db
 src/scrapers/luxembourg/
   base.py                     # shared scraper base (upsert, price history)
   athome.py                   # athome.lu (parses window.__INITIAL_STATE__ JSON)
@@ -246,7 +259,7 @@ src/scrapers/luxembourg/
   __init__.py                 # run_luxembourg() orchestrator
 alembic/                      # database migrations
 scripts/run_lux.sh            # cron wrapper
-tests/                        # 153 tests (pytest)
+tests/                        # 158 tests (pytest)
 SETUP.md / RUNBOOK.md / ARCHITECTURE.md   # deeper docs
 ```
 

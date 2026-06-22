@@ -171,10 +171,14 @@ User-Agent.
 ## Step 5 — Operating it
 
 - **See results:** `python -m src.lux_monitor shortlist --top 20`
-  (add `--type rent` or `--type buy`).
-- **What the DB tracks:** new/updated/delisted listings, full price history, and
-  cross-portal duplicates (only the primary is scored). Re-running is safe and
-  incremental — enrichment and any user fields are never clobbered by a re-scrape.
+  (add `--type rent`, `--type buy`, or `--type furnished`), or the dashboard.
+- **What the DB tracks:** new/updated/delisted listings, full price history,
+  cross-portal duplicates, and daily market snapshots (trend layer). Re-running is
+  safe and incremental — enrichment/user fields are never clobbered by a re-scrape.
+- **🚫 Never `rm data/monitor.db`** — re-scraping can't recover the price history,
+  trend snapshots or days-on-market clock. A plain `run` refreshes in place.
+  Backups: `python -m src.lux_monitor backup` / `restore`; the cron wrapper backs
+  up to `data/backups/` before every run automatically.
 - **No push alerts yet:** a scheduled run won't message you; check the shortlist
   or `logs/lux_run.log`. (Notifications can be added later.)
 - **When a site changes** (selectors stop returning data): repeat Step 1 for that
