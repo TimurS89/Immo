@@ -48,6 +48,26 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def compare_price(
+    listing_type: str,
+    price_eur: float | None,
+    rent_total_eur: float | None,
+    rent_eur: float | None,
+) -> float | None:
+    """The price used everywhere a buy and a rental must be compared.
+
+    Sale price for buy; monthly total (rent + charges, falling back to bare rent)
+    for rentals (incl. furnished). Single source of truth — scoring, snapshots,
+    dedup, the scrapers and the dashboard all resolve to this, via the
+    ``compare_price`` property on both :class:`Listing` and ``ListingBase``.
+    """
+    if listing_type == "buy":
+        return price_eur
+    if rent_total_eur is not None:
+        return rent_total_eur
+    return rent_eur
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -205,17 +225,10 @@ class Listing(Base):
 
     @property
     def compare_price(self) -> float | None:
-        """The price used everywhere a buy and a rental must be compared.
-
-        Sale price for buy; monthly total (rent + charges, falling back to bare
-        rent) for rentals. Single source of truth — scoring, snapshots, dedup,
-        the scrapers and the dashboard all use this so the bases never drift.
-        """
-        if self.listing_type == "buy":
-            return self.price_eur
-        if self.rent_total_eur is not None:
-            return self.rent_total_eur
-        return self.rent_eur
+        """Buy/rent comparison price — see module-level :func:`compare_price`."""
+        return compare_price(
+            self.listing_type, self.price_eur, self.rent_total_eur, self.rent_eur
+        )
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return (

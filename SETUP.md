@@ -129,8 +129,9 @@ only the offline stages — handy after tuning. If you skip Alembic, `run
 ### Tuning knobs
 
 All non-negotiables live in `config/luxembourg.py`:
-- `TARGET_COMMUNES` — the commune set (+ foreign %, school coords).
-- `HARD_FILTERS_RENT` / `HARD_FILTERS_BUY` — bedrooms, surface, price/rent band, commute caps.
+- `TARGET_COMMUNES` — the commune set (+ foreign %, centre coords).
+- `HARD_FILTERS` — rooms / surface / commune knockouts.
+- `PRICE_BAND` — per-type (floor, cap) price band.
 - `SCORING_WEIGHTS` — soft-score weights (must sum to 100).
 
 Estimator/heuristic constants live in `src/lux_monitor/commute.py` (speeds, rush

@@ -50,11 +50,13 @@ UPDATABLE_FIELDS = (
 
 
 def _current_price(listing: Listing) -> tuple[float | None, float | None]:
-    """Return (price, charges) for price-history tracking, by listing type."""
-    if listing.listing_type == "rent":
-        price = listing.rent_total_eur if listing.rent_total_eur is not None else listing.rent_eur
-        return price, listing.charges_eur
-    return listing.price_eur, None
+    """Return (price, charges) for price-history tracking.
+
+    Price comes from ``Listing.compare_price`` (the single source of truth for the
+    buy/rent basis — furnished counts as a rental); charges apply to rentals only.
+    """
+    charges = None if listing.listing_type == "buy" else listing.charges_eur
+    return listing.compare_price, charges
 
 
 class LuxBaseScraper(ABC):

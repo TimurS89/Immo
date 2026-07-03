@@ -151,6 +151,22 @@ def test_save_listings_upsert_and_price_history(lux_session):
     assert d.is_active is False
 
 
+def test_save_listings_records_price_history_for_furnished(lux_session):
+    # Regression: furnished used compare_price's rental basis, so it MUST get a
+    # PriceHistoryEntry (the old _current_price routed furnished to price_eur=None).
+    scraper = AtHomeScraper(AppConfig())
+    furnished = ListingCreate(
+        portal="athome", portal_listing_id="furn1", url="https://athome.lu/x",
+        commune="Strassen", listing_type="furnished", bedrooms=4, surface_m2=120,
+        rent_eur=4000, description_raw="a long enough description here",
+        description_lang="fr", title="t",
+    )
+    scraper.save_listings(lux_session, [furnished])
+    l = lux_session.query(Listing).filter_by(portal_listing_id="furn1").one()
+    entries = lux_session.query(PriceHistoryEntry).filter_by(listing_id=l.id).all()
+    assert len(entries) == 1 and entries[0].price_eur == 4000
+
+
 def test_run_luxembourg_survives_a_failing_scraper(lux_session, monkeypatch):
     """A portal raising (DNS/network/parse) must not abort the whole run."""
     import asyncio

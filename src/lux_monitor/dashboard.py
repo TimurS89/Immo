@@ -20,7 +20,6 @@ import streamlit as st
 
 from config.luxembourg import MORTGAGE
 from src.lux_monitor.db import get_engine, session_scope
-from src.lux_monitor.digest import buy_vs_rent_by_commune
 from src.lux_monitor.finance import UPFRONT_BUY_COST_PCT, monthly_mortgage
 from src.lux_monitor.models import Listing
 from src.lux_monitor.snapshots import ALL_COMMUNES
@@ -52,12 +51,9 @@ def load_rows() -> pd.DataFrame:
                     "bd": l.bedrooms,
                     "m²": l.surface_m2,
                     # "€" = the sale price for a buy, blank for rentals (their
-                    # monthly figure lives in €/mo, so the two columns never
-                    # show the same number twice).
+                    # monthly figure lives in €/mo, so the two columns never show
+                    # the same number twice). Also feeds the live mortgage below.
                     "€": l.price_eur if l.listing_type == "buy" else None,
-                    # raw buy price (None for rentals) so the mortgage column can
-                    # be recomputed live from the rate slider without re-querying.
-                    "buy_price": l.price_eur if l.listing_type == "buy" else None,
                     # the rental monthly (rent/total); None for buys. Feeds €/mo.
                     "rent_mo": price if l.listing_type != "buy" else None,
                     "€/m²": ppm2,
@@ -119,6 +115,30 @@ def load_price_drops() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+@st.cache_data(ttl=120)
+def load_buy_vs_rent(rate: float, term: int, fin: int) -> pd.DataFrame:
+    """Per-commune buy-vs-rent, cached on the mortgage inputs so it only recomputes
+    when a slider changes — not on every unrelated rerun."""
+    from src.lux_monitor.digest import buy_vs_rent_by_commune
+
+    with session_scope(get_engine()) as session:
+        rows = [
+            {
+                "commune": r.commune,
+                "rentals": r.n_rent,
+                "buys": r.n_buy,
+                "median rent €/mo": r.median_rent,
+                "median mortgage €/mo": r.median_mortgage,
+                "Δ buy−rent €/mo": r.delta,
+                "break-even yrs": r.break_even_years,
+            }
+            for r in buy_vs_rent_by_commune(
+                session, annual_rate_pct=rate, term_years=term, financing_pct=fin
+            )
+        ]
+    return pd.DataFrame(rows)
+
+
 # .copy() because we add live, slider-derived columns (mortgage/mo, €/mo) below;
 # load_rows() is @st.cache_data, so mutating its return value in place would
 # write slider-dependent data onto the shared cached object.
@@ -147,11 +167,13 @@ rate = st.sidebar.slider("Interest rate %", 0.0, 7.0, float(MORTGAGE["annual_rat
 term = st.sidebar.slider("Term (years)", 10, 35, int(MORTGAGE["term_years"]), 1)
 fin = st.sidebar.slider("Financing %", 50, 100, int(MORTGAGE["financing_pct"]), 5)
 
-# Derive the live monthly cost (rent for rentals, mortgage for buys) + €/m².
-df["mortgage/mo"] = df["buy_price"].apply(
+# Live monthly cost: estimated mortgage for buys (from the € sale price),
+# the rent for rentals. Computed each rerun so the rate/term/financing sliders
+# update it. mortgage is a local Series (not a stored column) — €/mo is all we show.
+mortgage = df["€"].apply(
     lambda p: monthly_mortgage(p, annual_rate_pct=rate, term_years=term, financing_pct=fin)
 )
-df["€/mo"] = df["mortgage/mo"].where(df["type"] == "buy", df["rent_mo"])
+df["€/mo"] = mortgage.where(df["type"] == "buy", df["rent_mo"])
 
 st.sidebar.subheader("Screen")
 min_rooms = st.sidebar.number_input("Rooms ≥", min_value=0, max_value=12, value=0, step=1)
@@ -198,18 +220,15 @@ c3.metric("Total active", len(df))
 c4.metric("Best score", f"{view['score'].max():.0f}" if view["score"].notna().any() else "–")
 
 # --- table ---
-# Drop internal helper columns: buy_price/rent_mo feed the live €/mo, and
-# mortgage/mo is identical to €/mo for buys (shown there) so it's redundant here.
-table = view.drop(columns=["buy_price", "rent_mo", "mortgage/mo"], errors="ignore")
-# Explicit column order: €/mo right after the buy price; the secondary fields
-# (garage, garden, highlights, flags, portal, first seen) come AFTER the link.
+# Explicit column order (also drops the rent_mo helper by omission): €/mo right
+# after the € buy price; the secondary fields (garage, garden, highlights, flags,
+# portal, first seen) come AFTER the link.
 COLUMN_ORDER = [
     "score", "type", "commune", "rooms", "bd", "m²",
     "€", "€/mo", "€/m²", "days", "drive", "PT", "energy", "link",
     "garage", "garden", "highlights", "flags", "portal", "first seen",
 ]
-ordered = [c for c in COLUMN_ORDER if c in table.columns]
-table = table[ordered + [c for c in table.columns if c not in ordered]]
+table = view[[c for c in COLUMN_ORDER if c in view.columns]]
 st.dataframe(
     table,
     use_container_width=True,
@@ -264,22 +283,10 @@ st.caption(
     f"equity, price growth, maintenance & tax."
 )
 
-# Aggregated by the tested digest helper (same rate/term/financing as the
-# sliders), so the dashboard is a thin renderer of testable logic.
-with session_scope(get_engine()) as _s:
-    _bvr = buy_vs_rent_by_commune(_s, annual_rate_pct=rate, term_years=term, financing_pct=fin)
-cmp_df = pd.DataFrame([
-    {
-        "commune": r.commune,
-        "rentals": r.n_rent,
-        "buys": r.n_buy,
-        "median rent €/mo": r.median_rent,
-        "median mortgage €/mo": r.median_mortgage,
-        "Δ buy−rent €/mo": r.delta,
-        "break-even yrs": r.break_even_years,
-    }
-    for r in _bvr
-])
+# Aggregated by the tested digest helper (via a cache keyed on the slider inputs),
+# so the dashboard is a thin renderer of testable logic and re-queries only when a
+# mortgage slider changes.
+cmp_df = load_buy_vs_rent(rate, term, fin)
 st.dataframe(
     cmp_df, hide_index=True, use_container_width=True,
     column_config={

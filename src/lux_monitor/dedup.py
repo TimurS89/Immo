@@ -25,12 +25,6 @@ SURFACE_TOL_M2 = 2.0
 PRICE_TOL_PCT = 5.0
 
 
-def _price(listing: Listing) -> float | None:
-    if listing.listing_type == "rent":
-        return listing.rent_total_eur if listing.rent_total_eur is not None else listing.rent_eur
-    return listing.price_eur
-
-
 def is_duplicate_pair(a: Listing, b: Listing) -> bool:
     """True if a and b are very likely the same property (same listing type)."""
     if a.listing_type != b.listing_type:
@@ -43,7 +37,7 @@ def is_duplicate_pair(a: Listing, b: Listing) -> bool:
         return False
     if abs(a.surface_m2 - b.surface_m2) > SURFACE_TOL_M2:
         return False
-    pa, pb = _price(a), _price(b)
+    pa, pb = a.compare_price, b.compare_price
     if pa is None or pb is None or max(pa, pb) == 0:
         return False
     if abs(pa - pb) / max(pa, pb) * 100.0 > PRICE_TOL_PCT:

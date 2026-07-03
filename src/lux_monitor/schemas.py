@@ -18,6 +18,7 @@ from .models import (
     LISTING_TYPES,
     PORTALS,
     Listing,
+    compare_price,
 )
 
 
@@ -113,15 +114,13 @@ class ListingBase(BaseModel):
 
     @property
     def compare_price(self) -> float | None:
-        """Buy/rent comparison price — mirrors ``Listing.compare_price`` so the
-        same ``passes_hard_filter`` works on inbound payloads and ORM rows alike.
-        ``rent_total_eur`` may be unset pre-``to_orm``; the rent_eur fallback
-        covers that."""
-        if self.listing_type == "buy":
-            return self.price_eur
-        if self.rent_total_eur is not None:
-            return self.rent_total_eur
-        return self.rent_eur
+        """Buy/rent comparison price — shared with ``Listing.compare_price`` so the
+        same ``passes_hard_filter`` works on inbound payloads and ORM rows alike
+        (``rent_total_eur`` may be unset pre-``to_orm``; the rent_eur fallback
+        covers that)."""
+        return compare_price(
+            self.listing_type, self.price_eur, self.rent_total_eur, self.rent_eur
+        )
 
 
 class ListingCreate(ListingBase):

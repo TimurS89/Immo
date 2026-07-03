@@ -77,7 +77,8 @@ Daily automation: `scripts/run_lux.sh` via cron (see RUNBOOK §4). It logs to
 - **Backups:** `backup.py` + CLI `backup`/`restore`; `scripts/run_lux.sh` backs up
   to `data/backups/` (git-ignored, keeps 14) **before every run**. There's a
   `.claude/skills/protect-database` skill enforcing the no-wipe rule.
-- **Price floor:** `MIN_PRICE_EUR` (config) drops portal data errors (e.g. a
+- **Price band:** `PRICE_BAND` (config) — per-type (floor, cap); the floor drops
+  portal data errors (e.g. a
   €1,111 "sale") so junk never reaches the shortlist.
 
 ## Recommended next steps (rough priority)
