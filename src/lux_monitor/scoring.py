@@ -32,8 +32,7 @@ from sqlalchemy.orm import Session
 from config.luxembourg import (
     BED_BEST,
     HARD_FILTERS,
-    MAX_PRICE_EUR,
-    MIN_PRICE_EUR,
+    PRICE_BAND,
     SCORING_WEIGHTS,
     TARGET_COMMUNES,
 )
@@ -78,9 +77,9 @@ def _effective_rooms(listing: Listing) -> int | None:
     return None
 
 
-def passes_hard_filter(listing: Listing, filters: dict | None = None) -> FilterResult:
+def passes_hard_filter(listing: Listing) -> FilterResult:
     """Apply the (deliberately small) knockouts; collect reasons for any failure."""
-    f = filters or HARD_FILTERS
+    f = HARD_FILTERS
     reasons: list[str] = []
 
     if listing.commune not in f["communes"]:
@@ -91,20 +90,19 @@ def passes_hard_filter(listing: Listing, filters: dict | None = None) -> FilterR
     # against the *evidenced* room count (rooms_total when present, else bedrooms)
     # so a large family home isn't rejected just because the +1 estimate crosses
     # max_rooms (e.g. 8 bedrooms -> est. 9 pièces must still pass max 8).
-    rooms_for_max = listing.rooms_total or listing.bedrooms or rooms
+    rooms_for_max = listing.rooms_total or listing.bedrooms
     if rooms is None or rooms < f["min_rooms"]:
         reasons.append(f"rooms {rooms} < {f['min_rooms']}")
-    elif rooms_for_max is not None and rooms_for_max > f["max_rooms"]:
+    elif rooms_for_max > f["max_rooms"]:
         reasons.append(f"rooms {rooms_for_max} > {f['max_rooms']}")
 
     if listing.surface_m2 < f["min_surface_m2"]:
         reasons.append(f"surface {listing.surface_m2:.0f} m² < {f['min_surface_m2']}")
 
-    # Per-type price ceiling (furnished is uncapped). An unknown price passes —
-    # only a price strictly OUTSIDE the [floor, cap] band is rejected. The floor
-    # drops portal data errors (e.g. a €1,111 "sale"); a missing price still passes.
-    cap = MAX_PRICE_EUR.get(listing.listing_type)
-    floor = MIN_PRICE_EUR.get(listing.listing_type)
+    # Per-type price band (floor, cap). An unknown price passes — only a *present*
+    # price outside its band is rejected. The floor drops portal data errors
+    # (e.g. a €1,111 "sale"); the cap enforces budget (furnished cap is None).
+    floor, cap = PRICE_BAND.get(listing.listing_type, (None, None))
     price = listing.compare_price
     if price is not None:
         if cap is not None and price > cap:
@@ -140,7 +138,7 @@ class ScoreBreakdown:
     parts: dict[str, dict]  # name -> {value, score, neutral, weight, points}
 
 
-def score_listing(listing: Listing, filters: dict | None = None) -> ScoreBreakdown:
+def score_listing(listing: Listing) -> ScoreBreakdown:
     """Weighted 0–100 score with a per-subscore breakdown (pure; no DB write)."""
     commune_meta = TARGET_COMMUNES.get(listing.commune, {})
     foreign_pct = commune_meta.get("foreign_pct")

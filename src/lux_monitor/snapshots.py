@@ -70,8 +70,6 @@ def record_snapshot(session: Session, *, when: datetime | None = None) -> int:
     Idempotent per calendar day: existing rows for ``when``'s date are replaced,
     so re-running the pipeline the same day updates rather than duplicates.
     """
-    from src.lux_monitor.scoring import passes_hard_filter
-
     when = as_naive_utc(when) if when else naive_utc_now()
     day_start, day_end = _day_bounds(when)
 
@@ -87,12 +85,18 @@ def record_snapshot(session: Session, *, when: datetime | None = None) -> int:
     )
     new_since = (prior[0] + timedelta(days=1)) if prior else day_start
 
-    active = (
+    # score_total is set (a float) iff the listing is active, non-duplicate AND
+    # passes the hard filter (apply_scores runs earlier in the pipeline), so we
+    # filter in SQL instead of re-running passes_hard_filter in Python.
+    listings = (
         session.query(Listing)
-        .filter(Listing.is_active.is_(True), Listing.duplicate_of_id.is_(None))
+        .filter(
+            Listing.is_active.is_(True),
+            Listing.duplicate_of_id.is_(None),
+            Listing.score_total.isnot(None),
+        )
         .all()
     )
-    listings = [l for l in active if passes_hard_filter(l).passed]
 
     # Replace any existing rows for this calendar day (idempotent re-run).
     session.query(MarketSnapshot).filter(

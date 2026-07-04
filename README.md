@@ -217,9 +217,9 @@ constants (no YAML to wrangle):
   Bertrange, Mamer, Walferdange, Hesperange, Leudelange — each with its
   foreign‑resident %, train flag, and centre coordinates (for the commute estimate).
 - **`HARD_FILTERS`** — the knockouts: **3–8 rooms, surface ≥ 80 m², commune**.
-- **`MAX_PRICE_EUR`** — per‑type price ceilings (buy €3M, rent €6,000, furnished `None`).
-- **`MIN_PRICE_EUR`** — per‑type price floors that drop portal data errors (a
-  €1,111 "sale", a €5/mo "rent"): buy €150k, rent €1,000, furnished €800.
+- **`PRICE_BAND`** — per‑type `(floor, cap)`: buy `(€150k, €3M)`, rent
+  `(€1k, €6k/mo)`, furnished `(€800, uncapped)`. The floor drops portal data
+  errors (a €1,111 "sale", a €5/mo "rent"); the cap enforces budget.
 - **`SCORING_WEIGHTS`** — the soft‑score weights (must sum to 100): bedrooms,
   commute (drive + PT), foreign %, description quality, energy, garage, garden.
 - **`COMMUNE_HKEYS`** — athome's location‑filter token per commune (captured from

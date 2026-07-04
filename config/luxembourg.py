@@ -98,6 +98,14 @@ COMMUNE_HKEYS: dict[str, str] = {
     "Leudelange":  "1b11c8fe",
 }
 
+# Fail loudly at import if the two commune sets drift — otherwise a target commune
+# without an hkey silently produces zero listings (only a runtime log warning).
+assert set(COMMUNE_HKEYS) == set(TARGET_COMMUNES), (
+    "COMMUNE_HKEYS and TARGET_COMMUNES must have the same communes; "
+    f"missing hkey for: {set(TARGET_COMMUNES) - set(COMMUNE_HKEYS)}, "
+    f"extra hkey for: {set(COMMUNE_HKEYS) - set(TARGET_COMMUNES)}"
+)
+
 
 # --- Hard filters (apply to all three listing categories) ------------------------
 # Deliberately simple: rooms, surface, commune — plus a per-type price ceiling.
@@ -109,29 +117,17 @@ HARD_FILTERS: dict = {
     "communes": list(TARGET_COMMUNES),
 }
 
-# Per-listing-type maximum price (EUR). buy is a sale price; rent is the monthly
-# total; furnished is intentionally uncapped (None). A missing/unknown price never
-# fails the filter — only a price strictly above the cap does.
-MAX_PRICE_EUR: dict = {
-    "buy": 3_000_000,
-    "rent": 6_000,
-    "furnished": None,
+# Per-listing-type price band (floor, cap) in EUR. buy is a sale price; rent is the
+# monthly total; furnished is uncapped (None cap). A missing/unknown price never
+# fails the filter — only a *present* price outside its band does. The floor drops
+# portal data errors (a €1,111 "sale", a €5/mo "rent"); the cap enforces budget.
+# min and max for a type live together so they can't drift apart.
+PRICE_BAND: dict[str, tuple[float | None, float | None]] = {
+    #          (floor,     cap)
+    "buy":       (150_000,  3_000_000),
+    "rent":      (1_000,    6_000),
+    "furnished": (800,      None),      # uncapped
 }
-
-# Per-type minimum price (EUR) — a sanity floor that drops portal data errors
-# (e.g. a €1,111 "sale", a €5/mo rent) and obvious non-prices. A real qualifying
-# 4-bed home/flat in these communes is comfortably above these. A missing/unknown
-# price still passes (only a present price BELOW the floor is rejected).
-MIN_PRICE_EUR: dict = {
-    "buy": 150_000,   # no real 80m²+ family home sells below this in-scope
-    "rent": 1_000,    # no real 80m²+ long-term rental is below this
-    "furnished": 800,
-}
-
-# Furnished / long-term rent / buy share the room/surface/commune criteria; the
-# price ceiling differs per type (looked up via MAX_PRICE_EUR in scoring).
-HARD_FILTERS_RENT = HARD_FILTERS
-HARD_FILTERS_BUY = HARD_FILTERS
 
 # --- Soft scoring weights (post-filter ranking; must sum to 100) -----------------
 SCORING_WEIGHTS: dict = {

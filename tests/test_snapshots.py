@@ -13,6 +13,8 @@ _ids = itertools.count(1)
 
 
 def _orm(listing_type="buy", commune="Luxembourg", *, surface=100.0, price=1_000_000.0):
+    from src.lux_monitor.scoring import passes_hard_filter, score_listing
+
     obj = ListingCreate(
         portal="athome",
         portal_listing_id=f"s{next(_ids)}",
@@ -27,6 +29,9 @@ def _orm(listing_type="buy", commune="Luxembourg", *, surface=100.0, price=1_000
         description_lang="fr",
         title="t",
     ).to_orm()
+    # Mirror the pipeline: apply_scores sets score_total (float ⇔ passes filter,
+    # None otherwise) BEFORE record_snapshot runs, which snapshots keys off.
+    obj.score_total = score_listing(obj).total if passes_hard_filter(obj).passed else None
     return obj
 
 

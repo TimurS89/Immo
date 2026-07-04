@@ -134,8 +134,8 @@ python -m src.lux_monitor run --no-scrape
 Knobs in that file:
 - `TARGET_COMMUNES` — the 7 communes (+ a `COMMUNE_HKEYS` token each for athome).
 - `HARD_FILTERS` — rooms 3–8, surface ≥ 80 m².
-- `MAX_PRICE_EUR` — buy ≤ €3M, rent ≤ €6000/mo, furnished uncapped.
-- `MIN_PRICE_EUR` — floors that drop portal junk (buy €150k, rent €1000, furn €800).
+- `PRICE_BAND` — per-type (floor, cap): buy (€150k, €3M), rent (€1k, €6k/mo),
+  furnished (€800, uncapped). Floor drops portal junk; cap enforces budget.
 - `SCORING_WEIGHTS` — must sum to 100.
 - `MORTGAGE` — rate %, term years, financing % for the buy **€/mo** estimate
   (used in the dashboard and the terminal shortlist; no re-scrape needed).

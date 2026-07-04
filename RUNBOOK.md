@@ -137,7 +137,7 @@ python -m src.lux_monitor run --no-scrape
 ```
 
 - **What to search / accept** — `config/luxembourg.py`:
-  `TARGET_COMMUNES`, `HARD_FILTERS_RENT` / `HARD_FILTERS_BUY`, `SCORING_WEIGHTS`.
+  `TARGET_COMMUNES`, `HARD_FILTERS`, `PRICE_BAND`, `SCORING_WEIGHTS`.
 - **Commute estimate** — `src/lux_monitor/commute.py` (`AVG_DRIVE_KMH`,
   `RUSH_DRIVE_FACTOR`, …). Note Mamer reads ~31 min (a flat speed can't see the
   A6) and passes on PT; adjust the constants if that bothers you.
