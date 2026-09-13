@@ -27,6 +27,23 @@ from src.lux_monitor.snapshots import ALL_COMMUNES
 st.set_page_config(page_title="LU Property Monitor", page_icon="🏠", layout="wide")
 
 
+# Amenity columns surfaced as one compact "extras" cell + the "must have" filter.
+# Tri-state columns: only True counts as present — None means the advert is silent,
+# which is the common case and must never be rendered as "no".
+AMENITIES: tuple[tuple[str, str], ...] = (
+    ("has_air_conditioning", "AC"),
+    ("has_solar_panels", "solar"),
+    ("has_heat_pump", "heat pump"),
+    ("has_pool", "pool"),
+    ("has_elevator", "lift"),
+    ("has_basement", "cellar"),
+    ("has_wine_cellar", "wine cellar"),
+    ("has_attic", "attic"),
+    ("is_new_build", "new build"),
+    ("accepts_pets", "pets ok"),
+)
+
+
 @st.cache_data(ttl=120)
 def load_rows() -> pd.DataFrame:
     from src.lux_monitor.digest import days_on_market
@@ -46,10 +63,22 @@ def load_rows() -> pd.DataFrame:
                 {
                     "score": l.score_total,
                     "type": l.listing_type,
+                    # What KIND of property (house / apartment), distinct from the
+                    # rent-vs-buy "type" above.
+                    "kind": l.property_type,
+                    "subtype": (l.property_subtype or "").replace("_", " ") or None,
                     "commune": l.commune,
                     "rooms": _effective_rooms(l),  # pièces — matches the scorer's filter
                     "bd": l.bedrooms,
+                    "bath": l.bathrooms_count,
                     "m²": l.surface_m2,
+                    "floor": l.floor,          # apartments
+                    "land m²": l.land_m2,      # houses
+                    "extras": " · ".join(
+                        label for attr, label in AMENITIES if getattr(l, attr) is True
+                    ),
+                    **{attr: getattr(l, attr) for attr, _ in AMENITIES},
+                    "heating": l.heating_type,
                     # "€" = the sale price for a buy, blank for rentals (their
                     # monthly figure lives in €/mo, so the two columns never show
                     # the same number twice). Also feeds the live mortgage below.
@@ -158,6 +187,11 @@ scored_only = st.sidebar.toggle("Only matches (scored)", value=True)
 all_types = sorted(df["type"].dropna().unique())
 all_communes = sorted(df["commune"].dropna().unique())
 types = st.sidebar.multiselect("Type", all_types, default=all_types)
+all_kinds = sorted(df["kind"].dropna().unique())
+kinds = st.sidebar.multiselect(
+    "Property kind", all_kinds, default=all_kinds,
+    help="house / apartment / other. Listings scraped before this field existed "
+         "show blank until the next run re-scrapes them.")
 communes = st.sidebar.multiselect("Commune", all_communes, default=all_communes)
 min_score = st.sidebar.slider("Min score", 0, 100, 0)
 
@@ -183,9 +217,20 @@ max_monthly = st.sidebar.number_input(
     "Monthly € ≤ (rent / est. mortgage)", min_value=0, max_value=20000, value=0, step=250,
     help="0 = no cap. For buy, compares the estimated mortgage payment.")
 max_drive = st.sidebar.number_input("Drive min ≤", min_value=0, max_value=120, value=0, step=5)
+min_land = st.sidebar.number_input(
+    "Plot m² ≥ (houses)", min_value=0, max_value=10000, value=0, step=100,
+    help="0 = no minimum. Plot size is read from the advert text, so a house that "
+         "doesn't state it is excluded by any value above 0.")
+must_have = st.sidebar.multiselect(
+    "Must have", [label for _, label in AMENITIES],
+    help="Only keeps listings where the advert SAYS the feature is present. Most "
+         "adverts don't list every feature, so an unstated one is treated as a "
+         "non-match — expect this to filter hard.")
 
 sort_by = st.sidebar.selectbox(
-    "Sort by", ["score", "€", "€/mo", "€/m²", "days", "first seen", "drive", "PT", "m²"])
+    "Sort by",
+    ["score", "€", "€/mo", "€/m²", "days", "first seen", "drive", "PT", "m²",
+     "floor", "land m²"])
 ascending = st.sidebar.toggle("Ascending", value=False)
 st.sidebar.divider()
 new_only = st.sidebar.toggle("🆕 New only", value=False)
@@ -207,6 +252,18 @@ if max_monthly:
     view = view[view["€/mo"].fillna(1e12) <= max_monthly]
 if max_drive:
     view = view[view["drive"].fillna(1e9) <= max_drive]
+if set(kinds) != set(all_kinds):
+    # Only filter when the operator actually narrowed it. Rows scraped before the
+    # property-kind field existed have kind=None; leaving the default (all kinds
+    # selected) keeps them visible rather than silently hiding every un-enriched
+    # listing until the next run.
+    view = view[view["kind"].isin(kinds)]
+if min_land:
+    view = view[view["land m²"].fillna(0) >= min_land]
+for attr, label in AMENITIES:
+    if label in must_have:
+        # .eq(True) deliberately: None (unstated) and False are both non-matches.
+        view = view[view[attr].eq(True)]
 if new_only:
     cutoff = (date.today() - timedelta(days=new_days)).isoformat()
     view = view[view["first seen"].fillna("") >= cutoff]
@@ -220,13 +277,14 @@ c3.metric("Total active", len(df))
 c4.metric("Best score", f"{view['score'].max():.0f}" if view["score"].notna().any() else "–")
 
 # --- table ---
-# Explicit column order (also drops the rent_mo helper by omission): €/mo right
-# after the € buy price; the secondary fields (garage, garden, highlights, flags,
-# portal, first seen) come AFTER the link.
+# Explicit column order (also drops the rent_mo helper and the raw has_* booleans
+# by omission): €/mo right after the € buy price; the secondary fields (subtype,
+# garage, garden, extras, highlights, flags, portal, first seen) come AFTER the link.
 COLUMN_ORDER = [
-    "score", "type", "commune", "rooms", "bd", "m²",
+    "score", "type", "kind", "commune", "rooms", "bd", "bath", "m²", "floor", "land m²",
     "€", "€/mo", "€/m²", "days", "drive", "PT", "energy", "link",
-    "garage", "garden", "highlights", "flags", "portal", "first seen",
+    "subtype", "garage", "garden", "extras", "heating",
+    "highlights", "flags", "portal", "first seen",
 ]
 table = view[[c for c in COLUMN_ORDER if c in view.columns]]
 st.dataframe(
@@ -236,6 +294,9 @@ st.dataframe(
     column_config={
         "link": st.column_config.LinkColumn("link", display_text="open ↗"),
         "score": st.column_config.NumberColumn("score", format="%.1f"),
+        "kind": st.column_config.TextColumn("kind", help="house / apartment / other"),
+        "subtype": st.column_config.TextColumn("subtype",
+            help="detached house, semi-detached, terraced, villa, studio, duplex, penthouse …"),
         "€": st.column_config.NumberColumn("buy price / —", format="%d",
             help="sale price for buy; blank for rentals (use €/mo for those)"),
         "€/mo": st.column_config.NumberColumn("€/mo (rent or mortgage)", format="%d",
@@ -243,6 +304,14 @@ st.dataframe(
         "€/m²": st.column_config.NumberColumn("€/m²", format="%d",
             help="buy: price per m²; rent: monthly rent per m²"),
         "m²": st.column_config.NumberColumn("m²", format="%d"),
+        "floor": st.column_config.NumberColumn("floor", format="%d",
+            help="apartments: 0 = ground floor. Blank for houses."),
+        "land m²": st.column_config.NumberColumn("plot m²", format="%d",
+            help="houses: plot/lot size, read from the advert text (LU quotes ares; 1 are = 100 m²)"),
+        "bath": st.column_config.NumberColumn("bath", format="%d"),
+        "extras": st.column_config.TextColumn("extras",
+            help="features the advert explicitly mentions. BLANK MEANS UNSTATED, "
+                 "not absent — most adverts list only a few."),
         "days": st.column_config.NumberColumn("days", format="%d",
             help="days since WE first saw it (grows daily; 0 = first seen today)"),
     },
@@ -253,7 +322,8 @@ st.caption(
     f"vs rent on one axis: for a buy it's the estimated mortgage payment "
     f"({rate:.1f}% over {term}y, {fin}% financing — adjust in the sidebar) — "
     f"**loan principal+interest only**, excluding notaire fees, maintenance and "
-    f"impôt foncier (real ownership cost is higher)."
+    f"impôt foncier (real ownership cost is higher). **extras / plot m²** reflect only "
+    f"what the advert states — a blank means unstated, not absent."
 )
 
 st.subheader("📉 Recent price drops (last 30 days)")

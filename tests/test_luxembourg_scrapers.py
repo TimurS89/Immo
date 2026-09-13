@@ -51,6 +51,58 @@ def test_athome_parse():
     assert b.has_garden is False and b.has_garage is False and b.parking_spaces == 1
 
 
+def test_athome_maps_property_type_floor_and_land():
+    """Type / floor / lot size — the three the operator asked for by name."""
+    listings = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "rent")
+
+    house = _by_id(listings, "1001")
+    assert house.property_type == "house" and house.property_subtype == "detached_house"
+    assert house.floor is None  # houses have no floor number
+    # "terrain de 5,5 ares" -> ares are the LU unit; 1 are = 100 m²
+    assert house.land_m2 == 550.0
+
+    flat = _by_id(listings, "1002")
+    assert flat.property_type == "apartment" and flat.property_subtype == "apartment"
+    assert flat.floor == 2          # floor matters for apartments
+    assert flat.land_m2 is None     # and lot size does not
+
+
+def test_athome_maps_amenities_from_payload_and_text():
+    listings = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "rent")
+    house = _by_id(listings, "1001")
+
+    # Structured payload fields.
+    assert house.bathrooms_count == 2
+    assert house.livingroom_m2 == 45.0 and house.terrace_m2 == 20.0
+    assert house.has_pool is True and house.has_attic is True
+    assert house.has_basement is True
+    assert house.has_heating is True and house.heating_type == "Gas"
+    assert house.kitchen_type == "Equipped"
+    assert house.is_new_build is False
+    assert house.has_heat_pump is True  # energy.heat_pump
+
+    # Text-derived — athome ships NO field for either. The FR text names the AC,
+    # the DE text names the solar: both languages must be searched.
+    assert house.has_air_conditioning is True
+    assert house.has_solar_panels is True
+
+
+def test_athome_amenities_are_tri_state_not_false_by_default():
+    """Unknown must stay unknown — the whole point of the tri-state columns."""
+    listings = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "rent")
+    house = _by_id(listings, "1001")
+    flat = _by_id(listings, "1002")
+
+    # Explicitly absent in the payload -> False.
+    assert house.has_wine_cellar is False
+    assert flat.accepts_pets is False        # hasAcceptedAnimals: 0
+    # athome's "unknown" sentinel is -1, NOT 0 — it must not read as False.
+    assert house.accepts_pets is None        # hasAcceptedAnimals: -1
+    # Simply not mentioned anywhere -> None.
+    assert flat.has_pool is None and flat.has_basement is None
+    assert flat.has_air_conditioning is None and flat.has_solar_panels is None
+
+
 def test_athome_furnished_detection_from_text():
     listings = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "rent")
     # 1001 ("maison ... jardin et garage") -> long-term; 1002 ("meublé") -> furnished
@@ -165,6 +217,57 @@ def test_save_listings_records_price_history_for_furnished(lux_session):
     l = lux_session.query(Listing).filter_by(portal_listing_id="furn1").one()
     entries = lux_session.query(PriceHistoryEntry).filter_by(listing_id=l.id).all()
     assert len(entries) == 1 and entries[0].price_eur == 4000
+
+
+def test_rescrape_backfills_new_fields_without_touching_existing_data(lux_session):
+    """A row stored before the property-type extension must ENRICH in place.
+
+    This is the data-flow half of the operator's "enhance, don't overwrite"
+    constraint (``tests/test_migration_additive.py`` covers the schema half): the
+    existing row keeps its identity, price history and first_seen_at, and simply
+    gains the columns it never had.
+    """
+    scraper = AtHomeScraper(AppConfig())
+    parsed = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "rent")
+    house = _by_id(parsed, "1001")
+
+    # Simulate a pre-extension row: same listing, none of the new fields known.
+    legacy = house.model_copy(update={
+        "property_type": None, "property_subtype": None, "land_m2": None,
+        "has_air_conditioning": None, "has_solar_panels": None, "has_pool": None,
+        "bathrooms_count": None, "heating_type": None,
+    })
+    scraper.save_listings(lux_session, [legacy])
+
+    stored = lux_session.query(Listing).filter_by(portal_listing_id="1001").one()
+    listing_id, first_seen = stored.id, stored.first_seen_at
+    assert stored.property_type is None and stored.land_m2 is None
+
+    # Next run sees the same advert, now parsed with the full field set.
+    scraper.save_listings(lux_session, [house])
+
+    stored = lux_session.query(Listing).filter_by(portal_listing_id="1001").one()
+    assert stored.id == listing_id                      # same row, not a new one
+    assert stored.first_seen_at == first_seen           # days-on-market preserved
+    assert lux_session.query(Listing).count() == 1      # nothing duplicated
+    # ... and the new columns are now populated.
+    assert stored.property_type == "house" and stored.property_subtype == "detached_house"
+    assert stored.land_m2 == 550.0 and stored.bathrooms_count == 2
+    assert stored.has_air_conditioning is True and stored.has_solar_panels is True
+    assert stored.heating_type == "Gas"
+    # Price history untouched by an enrichment-only update (price didn't change).
+    assert len(lux_session.query(PriceHistoryEntry).filter_by(listing_id=listing_id).all()) == 1
+
+
+def test_enrichment_fields_are_all_updatable(lux_session):
+    """Every enrichment field must be in UPDATABLE_FIELDS, or it can never backfill."""
+    from src.scrapers.luxembourg.base import ENRICHMENT_FIELDS, UPDATABLE_FIELDS
+
+    missing = [f for f in ENRICHMENT_FIELDS if f not in UPDATABLE_FIELDS]
+    assert not missing, f"these would stay NULL forever on existing rows: {missing}"
+    # And each must be a real column, not a typo.
+    unknown = [f for f in ENRICHMENT_FIELDS if not hasattr(Listing, f)]
+    assert not unknown, f"not columns on Listing: {unknown}"
 
 
 def test_run_luxembourg_survives_a_failing_scraper(lux_session, monkeypatch):

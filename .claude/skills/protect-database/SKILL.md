@@ -3,9 +3,10 @@ name: protect-database
 description: >-
   MUST-FOLLOW rules for the Luxembourg property monitor's SQLite database at
   data/monitor.db. Use this skill whenever a task involves the database,
-  re-scraping, "starting fresh", resetting, migrations, or anything that could
-  delete or overwrite data/monitor.db. The DB holds irreplaceable history
-  (price history + daily market snapshots) that re-scraping CANNOT recover.
+  re-scraping, "starting fresh", resetting, migrations, ADDING A COLUMN, or
+  anything that could delete or overwrite data/monitor.db. The DB holds
+  irreplaceable history (price history + daily market snapshots) that re-scraping
+  CANNOT recover.
 ---
 
 # Protect the database — `data/monitor.db` is precious
@@ -29,9 +30,46 @@ only exposes the *current* snapshot of the market, so a wipe permanently resets:
 - **Never** call `Base.metadata.drop_all`, `init-db` over an existing DB, or any
   destructive migration on the live file.
 
-If a schema change ever truly requires a rebuild, that is an **Alembic
-migration** (`alembic revision` + `upgrade`), never a delete. Migrations preserve
-data; deletes destroy it.
+A schema change is an **Alembic migration** (`alembic revision` + `upgrade`),
+never a delete. But "it's a migration" is not by itself a guarantee — see below.
+
+## Extending the schema — additive only
+
+**Adding a field must never rewrite the `listings` table.** On SQLite,
+`op.batch_alter_table(...)` works by *creating a new table, copying every row
+across, and dropping the original*. That is a full rebuild of the file's most
+valuable table, and it is one interrupted run, one type mismatch or one bad
+`server_default` away from losing price history — while looking, in review, like
+an ordinary migration.
+
+✅ **Do** — one nullable column at a time, native `ALTER TABLE … ADD COLUMN`:
+
+```python
+op.add_column("listings", sa.Column("land_m2", sa.Float(), nullable=True))
+```
+
+🚫 **Don't** — in the `upgrade()` path of a migration against `listings`:
+
+- `op.batch_alter_table(...)` (rebuild-by-copy),
+- `NOT NULL` on a new column, or a `server_default` backfilling every row,
+- any `DROP COLUMN` / `DROP TABLE` / `drop_all`.
+
+Existing rows read `NULL` for a new column, which is the **truthful** value:
+"we don't know yet". They fill in on their own — `save_listings` only writes
+non-`None` values (`UPDATABLE_FIELDS` in `src/scrapers/luxembourg/base.py`), so
+the next run that re-sees an advert **backfills it in place**. No reset, no
+re-import. A new column must be added to `UPDATABLE_FIELDS`, or it stays NULL
+forever on every row that already exists.
+
+`alembic/versions/c4f7a2b6e9d1_add_property_type_and_amenity_fields.py` is the
+worked example (19 columns, guarded against already-present ones).
+
+**Prove it, don't assert it.** `tests/test_migration_additive.py` builds a
+database at the pre-change revision, seeds listings + price history + snapshots,
+runs `alembic upgrade head`, and asserts every row, every old value and every
+**rowid** is unchanged (a rebuild reassigns rowids, so that pin is what catches
+one). Extend `BASELINE_REVISION`/`ADDED_COLUMNS` when you add the next migration
+— a destructive one should fail in the test suite, not on the operator's box.
 
 ## ✅ Always do
 

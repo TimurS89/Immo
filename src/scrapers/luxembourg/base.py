@@ -40,12 +40,32 @@ BROWSER_HEADERS = {
 # duplicate_of_id so re-scraping never clobbers enrichment or user edits.
 UPDATABLE_FIELDS = (
     "title", "url", "address_text", "postcode", "lat", "lng", "listing_type",
-    "bedrooms", "rooms_total", "surface_m2", "floor", "has_elevator", "has_garage",
-    "parking_spaces", "has_garden", "garden_m2", "has_balcony_terrace",
-    "construction_year", "renovation_year", "rent_eur", "charges_eur",
+    "property_type", "property_subtype",
+    "bedrooms", "rooms_total", "bathrooms_count", "surface_m2", "floor",
+    "has_elevator", "has_garage",
+    "parking_spaces", "has_garden", "garden_m2", "land_m2", "has_balcony_terrace",
+    "terrace_m2", "balcony_m2", "livingroom_m2",
+    "construction_year", "renovation_year", "is_new_build",
+    "has_air_conditioning", "has_solar_panels", "has_heat_pump", "has_pool",
+    "has_attic", "has_basement", "has_wine_cellar", "has_heating",
+    "heating_type", "kitchen_type", "accepts_pets",
+    "rent_eur", "charges_eur",
     "rent_total_eur", "deposit_months", "price_eur", "price_per_m2_eur",
     "energy_class", "thermal_class", "annual_energy_cost_eur", "taxe_fonciere_eur",
     "description_raw", "description_lang", "photos_urls", "listing_agency",
+)
+
+# Fields the property-type extension added (2026-09-13). Rows scraped before it
+# exist with NULL here; the loop in save_listings only writes non-None values, so
+# the next re-scrape BACKFILLS them in place — no reset, no re-import. Named
+# separately so the scrapers can log per-field coverage (a field at 0% after a
+# full run means the portal renamed its key) without re-deriving the list.
+ENRICHMENT_FIELDS = (
+    "property_type", "property_subtype", "bathrooms_count", "land_m2",
+    "terrace_m2", "balcony_m2", "livingroom_m2", "is_new_build",
+    "has_air_conditioning", "has_solar_panels", "has_heat_pump", "has_pool",
+    "has_attic", "has_basement", "has_wine_cellar", "has_heating",
+    "heating_type", "kitchen_type", "accepts_pets",
 )
 
 

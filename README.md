@@ -41,7 +41,11 @@ Every run, the tool:
    advert link, not photos.)
 2. **Stores** each listing in a local SQLite database, tracking price changes,
    when it first/last appeared, and when it disappears (a useful "rented/sold"
-   signal).
+   signal). Each row records **what kind of property it is** (house —
+   detached / semi‑detached / terraced / villa… — vs apartment — studio / duplex /
+   penthouse…), the **floor** for apartments, the **plot size** for houses, and the
+   comfort features the advert mentions (air conditioning, solar panels, heat pump,
+   pool, cellar, kitchen and heating type, pets…).
 3. **Prunes** anything already stored that no longer matches the current filters
    (so tightening a filter trims the database on the next run, no re‑scrape).
 4. **De‑duplicates** the same property listed on more than one portal.
@@ -63,13 +67,14 @@ Every run, the tool:
 
 ## Current status
 
-The pipeline is built, **tested (158 passing tests)**, and **running live against
+The pipeline is built, **tested (195 passing tests)**, and **running live against
 athome.lu** end‑to‑end. A full run currently harvests ~1,500 matching listings
 across the three types in the 7 target communes.
 
 | Component | Status |
 |---|---|
 | Database + schema (SQLite, Alembic migrations) | ✅ Done |
+| Property type / subtype, floor, plot size, amenities | ✅ Done — backfills existing rows on the next run |
 | Config: communes, hard filters, price caps, scoring weights | ✅ Done |
 | **athome.lu** scraper | ✅ **Working live** — embedded JSON, server‑side location/surface/bedroom filters, full pagination |
 | immotop.lu scraper | 🅿️ **Parked** — Cloudflare‑walled *and* largely duplicates athome; code kept, disabled in `ACTIVE_PORTALS` |
@@ -123,6 +128,30 @@ portals→│ scrape → save(+price history) → prune → dedup → commute �
    PT time (15), foreign‑resident % of the commune (13), description quality (12),
    energy class (8), garage (7), garden (7). Missing data scores *neutral*, never
    punishing.
+
+### What's recorded per listing
+
+Beyond price, size and location:
+
+| Field | Where it comes from |
+|---|---|
+| **kind** — house / apartment / other | athome's property category |
+| **subtype** — detached house, semi‑detached, terraced, villa, studio, duplex, penthouse, loft… | athome's own label, normalised; an unknown label is kept as‑is rather than dropped |
+| **floor** (apartments) | athome payload |
+| **plot m²** (houses) | the advert text — Luxembourg quotes plots in **ares** (1 are = 100 m²), converted to m² |
+| bathrooms, living‑room / terrace / balcony m², new build | athome payload |
+| pool, attic, cellar, wine cellar, heating + heating type, kitchen type, pets, lift | athome payload |
+| **air conditioning**, **solar panels** | the advert text (FR/DE/EN) — athome has no field for either |
+| heat pump | athome's energy block, falling back to the advert text |
+
+These are **tri‑state**: the value is *yes*, *explicitly no*, or **unknown**. Most
+adverts list only a few features, so a blank means "the advert doesn't say" — never
+"the property doesn't have it". The dashboard's **Must have** filter therefore
+filters hard: it keeps only listings that explicitly state the feature.
+
+Existing rows are **enriched in place** — a listing stored before these fields
+existed simply gains them the next time the run sees it. Nothing is reset or
+re‑imported.
 
 ---
 
@@ -272,7 +301,14 @@ SETUP.md / RUNBOOK.md / ARCHITECTURE.md   # deeper docs
   LLM). Both are deterministic, free, offline, and "good enough for ranking" — at
   the cost of being approximate (see caveats).
 - **SQLite + Alembic.** Zero‑config single‑file database; migrations keep the
-  schema reproducible.
+  schema reproducible. **Migrations are additive only** — new columns are added
+  with `ALTER TABLE ... ADD COLUMN`, never by rebuilding the table, so a schema
+  change can't cost you stored price history. `tests/test_migration_additive.py`
+  proves it against a populated database on every test run.
+- **Unknown is a value.** Feature columns are tri‑state (yes / no / unknown)
+  rather than a boolean defaulting to false, because "the advert didn't mention a
+  cellar" and "there is no cellar" are different facts and only one of them is
+  true.
 - **Validation in Pydantic, flexible strings in the DB.** Adding a new portal never
   requires a database migration.
 - **Parse stable data, not fragile markup.** athome is parsed from its embedded
@@ -290,7 +326,13 @@ SETUP.md / RUNBOOK.md / ARCHITECTURE.md   # deeper docs
   alone covers most of the market.**
 - **Richer per‑listing detail** — the scraper uses the search‑results JSON, which
   omits energy class (so that subscore stays neutral). Fetching each advert page
-  would fill it in, at the cost of many more requests.
+  would fill it in — along with far better coverage of plot size, air conditioning
+  and solar, which today are read out of the (often short) search‑results
+  description — at the cost of many more requests.
+- **Scoring ignores the new fields** — kind, plot size and amenities are recorded
+  and filterable, but the 0–100 score still uses the original eight weights. Adding
+  e.g. a plot‑size or solar preference means re‑balancing `SCORING_WEIGHTS`
+  (they sum to 100).
 - **A furnished‑specialist source** (e.g. HousingAnywhere) would add coverage in
   the one segment the big portals under‑serve.
 
