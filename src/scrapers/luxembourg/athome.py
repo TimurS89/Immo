@@ -262,9 +262,11 @@ class AtHomeScraper(LuxBaseScraper):
             return None
         url = path if path.startswith("http") else f"{cls.BASE_URL}{path}"
 
-        descs = descs_all
-        description = descs.get("fr") or descs.get("en") or descs.get("de") or entry.get("description") or ""
-        lang = "fr" if descs.get("fr") else ("en" if descs.get("en") else "de")
+        description = (
+            descs_all.get("fr") or descs_all.get("en") or descs_all.get("de")
+            or entry.get("description") or ""
+        )
+        lang = "fr" if descs_all.get("fr") else ("en" if descs_all.get("en") else "de")
         subtype_label = entry.get("propertySubType")
         subtype = subtype_label or "Bien"
         if not description:
@@ -281,9 +283,14 @@ class AtHomeScraper(LuxBaseScraper):
 
         # Plot size: prefer a structured field if athome ships one for this entry,
         # else read it out of the description (LU quotes plots in ares).
+        # Apartments are excluded from the TEXT path on purpose — "penthouse dans
+        # une résidence sur terrain de 10 ares" describes the building's grounds,
+        # and recording 1,000 m² as the flat's plot is simply wrong.
         land_m2 = _to_float(
             _first(entry, "landSurface", "groundSurface", "terrainSurface", "plotSurface")
-        ) or extract_land_m2(blob)
+        )
+        if land_m2 is None and property_type != "apartment":
+            land_m2 = extract_land_m2(blob)
 
         # Heat pump: athome's energy block when it says, the text otherwise.
         energy = entry.get("energy") or {}

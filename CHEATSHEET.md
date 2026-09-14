@@ -115,6 +115,12 @@ cellar, wine cellar, attic, new build, pets ok).
 > explicitly state the feature. Use it to shortlist, not to rule things out.
 > Same for **plot m²**: it's read from the advert text (Luxembourg quotes plots in
 > *ares*, 1 are = 100 m²), so a house that doesn't mention its plot shows blank.
+>
+> Two deliberate blanks you might otherwise report as bugs:
+> - **Apartments never show a plot.** "Penthouse dans une résidence sur terrain de
+>   10 ares" is the *building's* grounds, not the flat's.
+> - **"Offered" doesn't count as "has".** "Possibilité d'installer une
+>   climatisation" / "climatisation en option" leaves AC blank, not ✓.
 
 The **€/mo** column puts buy and rent on one axis: for a buy it's the estimated
 **mortgage payment** (loan principal+interest). Adjust the rate/term/financing
@@ -212,7 +218,7 @@ python -m src.lux_monitor restore --file data/backups/monitor-<ts>.db
 ```bash
 cd ~/immo && git pull            # get the latest code
 alembic upgrade head             # apply any new DB migrations (safe; no data loss)
-pytest -q                        # healthy = "2 skipped, 195 passed"
+pytest -q                        # healthy = "2 skipped, 221 passed"
 ```
 
 (See **§0** for the full "after a code update" routine, incl. an optional clean

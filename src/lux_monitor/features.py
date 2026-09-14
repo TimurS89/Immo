@@ -14,6 +14,16 @@ tri-state:
 * ``None``  — the text is silent, i.e. **unknown** (the common case — most ads
   don't enumerate every feature). Never conflate "not mentioned" with "absent".
 
+"Offered" is not "fitted": a feature the advert proposes to install
+("possibilité d'installer une climatisation", "climatisation en option") reads
+as ``None``, not ``True`` — see ``_HYPOTHETICAL_RE``.
+
+The bias throughout is that **no answer beats a wrong one**. A plot size lifted
+off the wrong number looks entirely plausible in the dashboard and there is
+nothing downstream to catch it, so the patterns refuse anything they can't tie
+to the plot phrase itself (see ``_PLOT_STOP_RE``, and the cases pinned in
+``tests/test_features.py``).
+
 Portal-agnostic: takes text, returns values. FR / DE / EN, accent-insensitive.
 """
 
@@ -65,13 +75,39 @@ _HEAT_PUMP_NEG_RE = re.compile(
 )
 
 
+# A feature the advert merely *offers to install* is not a feature the property
+# has — "possibilité d'installer une climatisation" and "climatisation en option"
+# both describe something absent today. Treating those as present is a claim the
+# advert never made, so a cue anywhere in the same sentence downgrades the match
+# to unknown (the honest answer: it's neither fitted nor ruled out).
+_HYPOTHETICAL_RE = re.compile(
+    r"\b(possibilite|possibilites|possible|en option|optionnel(?:le)?|optional|"
+    r"pre[\s-]?equipe[e]?s?|prevu[es]?\s+pour|prepare[es]?\s+pour|preparation|"
+    r"peut\s+etre\s+(?:installe|ajoute)|sur\s+demande|en\s+supplement|"
+    r"moglichkeit|vorbereitet|vorgesehen|auf\s+wunsch|gegen\s+aufpreis|"
+    r"can\s+be\s+(?:installed|added)|on\s+request)\b"
+)
+
+
+def _sentence_around(norm: str, index: int) -> str:
+    """The sentence containing ``index`` — cues don't carry across a full stop."""
+    start = norm.rfind(".", 0, index) + 1
+    end = norm.find(".", index)
+    return norm[start : end if end != -1 else len(norm)]
+
+
 def _tri_state(text: str, positive: re.Pattern[str], negative: re.Pattern[str]) -> bool | None:
-    """True if mentioned, False if explicitly negated, None if not mentioned."""
+    """True if mentioned, False if explicitly negated, None if not mentioned.
+
+    A mention wrapped in a "could be installed" / "available as an option" phrase
+    counts as *not mentioned* rather than present.
+    """
     norm = normalize_text(text)
     if negative.search(norm):
         return False
-    if positive.search(norm):
-        return True
+    for match in positive.finditer(norm):
+        if not _HYPOTHETICAL_RE.search(_sentence_around(norm, match.start())):
+            return True  # at least one unconditional mention
     return None
 
 
@@ -96,12 +132,44 @@ def detect_heat_pump(text: str | None) -> bool | None:
 # --- land / plot size -------------------------------------------------------
 # "terrain de 5,5 ares", "5 ares de terrain", "Grundstück von 6 Ar",
 # "terrain 500 m2", "plot of 800 sqm". Unit is captured so ares -> m² converts.
-_NUM = r"(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?)"
-_UNIT = r"(ares?|ar|m2|m²|sqm|qm)"
-_LAND_PATTERNS = (
-    re.compile(rf"\b(?:terrain|terrains|grundstuck|grundstuecke?|plot|land|parcelle)\b[^.\n]{{0,30}}?{_NUM}\s*{_UNIT}\b"),
-    re.compile(rf"{_NUM}\s*{_UNIT}\s*(?:de\s+)?(?:terrain|grundstuck|plot|land|parcelle)\b"),
+#
+# `m²` is deliberately absent from the unit list: NFKD normalization decomposes
+# U+00B2 to "2", so by the time these patterns run "m²" is already "m2".
+_NUM = r"(?P<num>\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?)"
+_UNIT = r"(?P<unit>ares?|ar|m2|sqm|qm)"
+
+# Bare "land" is NOT a keyword. German "Land" means country/region
+# ("im Luxemburger Land, 120 m2 Wohnfläche") and was measured returning the
+# LIVING area as the plot — a wrong number that looks entirely plausible. The
+# English noun only counts in its explicit "land of / land area" forms.
+# German appears both with umlauts (NFKD-stripped to "grundstucksflache") and
+# transliterated ("Grundstuecksflaeche") — athome carries both spellings.
+_PLOT_KEYWORD = (
+    r"(?:terrains?|grundstu(?:e)?ck(?:e|s)?(?:fl(?:a|ae)che)?|bauland|parcelle|"
+    r"plot|land\s+(?:of|area|size))"
 )
+
+# Once the sentence has moved on to the dwelling or its living area, a following
+# number is no longer the plot: "sur terrain clôturé, maison de 180 m²" is a
+# house of 180 m² on a plot of unstated size, not a 180 m² plot.
+_PLOT_STOP_RE = re.compile(
+    r"\b(maison|appartement|logement|villa|haus|wohnung|house|apartment|flat|"
+    r"habitable[s]?|wohnflache|living|sejour|surface\s+habitable)\b"
+)
+
+_LAND_PATTERNS = (
+    # keyword first: the gap may not cross a comma or full stop — that is where
+    # the plot phrase ends and a new subject begins.
+    re.compile(rf"\b{_PLOT_KEYWORD}\b(?P<gap>[^.,;\n]{{0,25}}?){_NUM}\s*{_UNIT}\b"),
+    # number first: "5 ares de terrain", "800 sqm plot".
+    re.compile(rf"{_NUM}\s*{_UNIT}\s*(?:de\s+|of\s+|von\s+)?\b{_PLOT_KEYWORD}\b"),
+)
+
+# "terrain d'env. 5 ares" / "Grundstück ca. 800 m²": the gap above stops at a
+# full stop, so an approximation abbreviation would hide the size behind its own
+# period. Drop the dot before matching — these are the only periods in a plot
+# phrase that don't end the sentence.
+_ABBREV_DOT_RE = re.compile(r"\b(env|ca|approx|approximately|circa|abt|ungef)\.")
 
 
 def _parse_number(raw: str) -> float | None:
@@ -123,20 +191,21 @@ def extract_land_m2(text: str | None) -> float | None:
     Handles Luxembourg's "ares" (1 are = 100 m²) as well as m²/sqm. Returns None
     for values outside a plausible plot range rather than a nonsense number.
     """
-    norm = normalize_text(text)
+    norm = _ABBREV_DOT_RE.sub(r"\1", normalize_text(text))
     if not norm:
         return None
     for pattern in _LAND_PATTERNS:
-        match = pattern.search(norm)
-        if not match:
-            continue
-        value = _parse_number(match.group(1))
-        if value is None:
-            continue
-        unit = match.group(2)
-        m2 = value * M2_PER_ARE if unit.startswith("ar") else value
-        if LAND_MIN_M2 <= m2 <= LAND_MAX_M2:
-            return round(m2, 1)
+        # finditer, not search: a candidate rejected for reaching past the plot
+        # phrase must not hide a good one later in the same description.
+        for match in pattern.finditer(norm):
+            if _PLOT_STOP_RE.search(match.groupdict().get("gap") or ""):
+                continue
+            value = _parse_number(match.group("num"))
+            if value is None:
+                continue
+            m2 = value * M2_PER_ARE if match.group("unit").startswith("ar") else value
+            if LAND_MIN_M2 <= m2 <= LAND_MAX_M2:
+                return round(m2, 1)
     return None
 
 
@@ -185,8 +254,13 @@ _APARTMENT_SUBTYPES = {
 }
 
 
+# Matches the property_subtype column width (models.py). An unrecognised label
+# slugifies through, so nothing stops a portal handing us a whole sentence.
+SUBTYPE_MAX_LEN = 64
+
+
 def _slug(label: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", normalize_text(label)).strip("_")
+    return re.sub(r"[^a-z0-9]+", "_", normalize_text(label)).strip("_")[:SUBTYPE_MAX_LEN].rstrip("_")
 
 
 def classify_property(

@@ -11,7 +11,7 @@ in the terminal or a phone-friendly dashboard. Runs locally, **no paid APIs**.
 
 ## Repo facts
 - **Active branch:** `claude/nice-clarke-KfULG` (work has been committed/pushed here).
-- **Tests:** `pytest -q` → **195 passing, 2 skipped** (legacy `test_analysis.py` /
+- **Tests:** `pytest -q` → **221 passing, 2 skipped** (legacy `test_analysis.py` /
   `test_reports.py` skip when `thefuzz` / `jinja2` aren't installed — the lean LU
   install omits both). Run before and after any change.
 - **Language/stack:** Python 3.11+, SQLite + Alembic, SQLAlchemy 2.0, Pydantic v2,
@@ -66,7 +66,13 @@ in the terminal or a phone-friendly dashboard. Runs locally, **no paid APIs**.
 - **Property type / amenities come from the payload; plot size, AC and solar do
   not** — athome's `search.list` has no field for those three, so they're read out
   of the description text (`src/lux_monitor/features.py`, FR/DE/EN, accent-
-  insensitive; LU quotes plots in **ares**, 1 are = 100 m²).
+  insensitive; LU quotes plots in **ares**, 1 are = 100 m²). Two rules hold that
+  module together, both pinned by tests after a review found each one violated:
+  **"offered" is not "fitted"** (a feature the ad proposes to install reads as
+  unknown — `_HYPOTHETICAL_RE`), and **no answer beats a wrong one** (a number the
+  parser can't tie to the plot phrase is discarded — `_PLOT_STOP_RE`; bare "land"
+  is not a keyword because German *Land* means region). Apartments skip the plot
+  text path entirely — a residence's grounds are not the flat's lot.
 - The payload is **unversioned**, so `_first(entry, "hasBasementRoom",
   "hasBasement", …)` accepts key-name variants, and `scrape()` ends with an
   `athome field coverage …` log line (`name=count(pct%)` per enriched field). **A

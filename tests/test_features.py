@@ -33,6 +33,31 @@ def test_ac_negated_and_unknown():
     assert detect_air_conditioning(None) is None
 
 
+@pytest.mark.parametrize("text", [
+    "possibilité d'installer une climatisation",
+    "pré-équipé pour climatisation",
+    "climatisation en option",
+    "Klimaanlage auf Wunsch",
+    "air conditioning can be installed on request",
+])
+def test_ac_offered_is_not_ac_fitted(text):
+    """An advert offering to install AC is describing something ABSENT today.
+
+    Reading "possibilité d'installer une climatisation" as "has air conditioning"
+    is a claim the advert never made — unknown is the honest answer.
+    """
+    assert detect_air_conditioning(text) is None
+
+
+def test_hypothetical_cue_does_not_leak_across_sentences():
+    # "en option" belongs to the garage, not to the (fitted) air conditioning.
+    assert detect_air_conditioning("Garage en option. Séjour avec climatisation.") is True
+
+
+def test_solar_offered_is_not_solar_fitted():
+    assert detect_solar_panels("possibilité d'installer des panneaux solaires") is None
+
+
 # --- solar --------------------------------------------------------------------
 @pytest.mark.parametrize("text", [
     "Maison avec panneaux solaires",
@@ -94,6 +119,52 @@ def test_land_does_not_grab_unrelated_numbers():
     assert extract_land_m2("Appartement 120 m², 3 chambres, 450.000 €") is None
 
 
+@pytest.mark.parametrize("text", [
+    # German "Land" = country/region, not a plot. Measured returning 120 m².
+    "Wohnung im Luxemburger Land, 120 m2 Wohnfläche",
+    "Schöne Lage im Land, 95 m2",
+    # The plot is mentioned WITHOUT a size; the number that follows is the
+    # LIVING area. Measured returning 180 m² as the plot.
+    "Sur terrain clôturé, maison de 180 m2 habitables",
+    "Sur terrain clôturé maison de 180 m2 habitables",
+    "Terrain arboré. Surface habitable 200 m2",
+])
+def test_land_does_not_grab_the_living_area(text):
+    """A wrong plot size is worse than none — it looks entirely plausible."""
+    assert extract_land_m2(text) is None
+
+
+def test_land_still_found_when_both_areas_are_stated():
+    # The living area must not shadow a plot size that IS given.
+    assert extract_land_m2("Maison 200 m2 habitables sur terrain de 6 ares") == 600.0
+    assert extract_land_m2("terrain arboré de 200 m2") == 200.0
+
+
+@pytest.mark.parametrize("text,expected", [
+    # "env." / "ca." put a period inside the plot phrase; the gap stops at a full
+    # stop, so the abbreviation would otherwise hide the size behind its own dot.
+    ("terrain d'env. 5 ares", 500.0),
+    ("terrain de ca. 800 m2", 800.0),
+    ("Grundstück ca. 800 m²", 800.0),
+    ("terrain de +/- 5 ares", 500.0),
+    ("terrain: 5,5 ares", 550.0),
+])
+def test_land_approximation_forms(text, expected):
+    assert extract_land_m2(text) == expected
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Grundstücksfläche 800 m2", 800.0),      # umlauts (NFKD-stripped)
+    ("Grundstuecksflaeche 800 m2", 800.0),    # transliterated — athome has both
+    ("Grundstücke mit 500 m2", 500.0),
+    ("Bauland von 6 Ar", 600.0),
+    ("parcelle de 700 m2", 700.0),
+    ("beautiful land of 500 m2", 500.0),      # English noun in its explicit form
+])
+def test_land_keyword_spellings(text, expected):
+    assert extract_land_m2(text) == expected
+
+
 # --- property classification --------------------------------------------------
 @pytest.mark.parametrize("label,exp_type,exp_sub", [
     ("Detached house", "house", "detached_house"),
@@ -118,3 +189,14 @@ def test_classify_falls_back_to_portal_group():
 def test_classify_unknown_everything():
     assert classify_property("Indoor garage") == ("other", "indoor_garage")
     assert classify_property(None) == (None, None)
+
+
+def test_classify_subtype_fits_the_column():
+    """An unknown label slugifies through, so nothing bounds it but this cap."""
+    from src.lux_monitor.features import SUBTYPE_MAX_LEN
+
+    _, subtype = classify_property(
+        "Beautiful renovated detached family house with garden, garage and pool"
+    )
+    assert len(subtype) <= SUBTYPE_MAX_LEN
+    assert not subtype.endswith("_")  # no dangling separator from the cut
