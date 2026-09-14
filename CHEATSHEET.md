@@ -23,13 +23,25 @@ up to date and rebuild the data so it reflects the new filters/scoring:
 cd ~/immo && source .venv/bin/activate
 git pull                              # get the new code
 alembic upgrade head                  # apply any new DB migrations (safe, no data loss)
-pytest -q                             # sanity: "1 skipped, … passed"
+pytest -q                             # sanity: "2 skipped, … passed"
 python -m src.lux_monitor run         # in-place refresh (~5 min); applies new filters
 ```
 
 A plain `run` is **always** the right move after a code/filter change: it updates
 listings in place, **prunes** anything that no longer matches, and **keeps your
 accumulated history** (price history, days-on-market, trend snapshots).
+
+> **New fields (property kind, floor, plot size, amenities):** `alembic upgrade
+> head` only **adds empty columns** — your existing listings keep every value they
+> had and show blank in the new ones. The first `run` after it **fills them in on
+> the rows it re-sees**. Check it landed:
+> ```bash
+> grep "field coverage" ~/immo/logs/lux_run.log | tail -1
+> ```
+> Each field shows `name=count(pct%)` over the listings just parsed. `property_type`
+> should be ~100%; the text-derived ones (`land_m2`, `has_air_conditioning`,
+> `has_solar_panels`) will be low — search-results descriptions are short. **A field
+> at `0%` means athome renamed that payload key**, not that nothing has one.
 
 > 🚫 **Do NOT `rm data/monitor.db`.** Wiping it permanently loses that history and
 > resets days-on-market to 0. See **§7** — there's a `backup`/`restore` command if
@@ -85,10 +97,24 @@ Open in a browser:
   (if that IP changed: `hostname -I | awk '{print $1}'` to get the current one)
 
 In the dashboard, **Screen** (sidebar): rooms ≥, bedrooms ≥, surface m² ≥,
-**monthly € ≤** (rent or estimated mortgage), drive min ≤, plus type/commune/min-score.
-Sort by score / € / **€/mo** / **€/m²** / days. Sections: **🆕 New only**,
-**📉 price drops**, **📈 market trends** + rent-vs-buy compare, **🐌 long on the market**.
+**monthly € ≤** (rent or estimated mortgage), drive min ≤, **plot m² ≥**,
+**Must have** (features), plus type/**property kind**/commune/min-score.
+Sort by score / € / **€/mo** / **€/m²** / days / **floor** / **plot m²**. Sections:
+**🆕 New only**, **📉 price drops**, **📈 market trends** + rent-vs-buy compare,
+**🐌 long on the market**.
 Hit **🔄 Reload data** after a new run; **open ↗** to view an advert.
+
+New columns: **kind** (house / apartment), **subtype** (detached house,
+semi-detached, terraced, villa, studio, duplex, penthouse…, after the link),
+**bath**, **floor** (apartments; 0 = ground), **plot m²** (houses), and **extras**
+— the features the advert actually names (AC, solar, heat pump, pool, lift,
+cellar, wine cellar, attic, new build, pets ok).
+
+> ⚠️ **Blank means "the advert doesn't say", not "no".** Most adverts list only a
+> few features, so the **Must have** filter cuts hard — it keeps only listings that
+> explicitly state the feature. Use it to shortlist, not to rule things out.
+> Same for **plot m²**: it's read from the advert text (Luxembourg quotes plots in
+> *ares*, 1 are = 100 m²), so a house that doesn't mention its plot shows blank.
 
 The **€/mo** column puts buy and rent on one axis: for a buy it's the estimated
 **mortgage payment** (loan principal+interest). Adjust the rate/term/financing
@@ -186,7 +212,7 @@ python -m src.lux_monitor restore --file data/backups/monitor-<ts>.db
 ```bash
 cd ~/immo && git pull            # get the latest code
 alembic upgrade head             # apply any new DB migrations (safe; no data loss)
-pytest -q                        # healthy = "1 skipped, 158 passed"
+pytest -q                        # healthy = "2 skipped, 195 passed"
 ```
 
 (See **§0** for the full "after a code update" routine, incl. an optional clean
@@ -205,6 +231,7 @@ re-scrape.)
 | `ModuleNotFoundError` | you forgot `source .venv/bin/activate` |
 | `snapshot stage failed` in log / no trends | you skipped a migration — run `alembic upgrade head` (the run itself still succeeds; snapshots are non-fatal) |
 | athome returns nothing | a commune's `q=` token may be stale — see SESSION_HANDOFF "How athome scraping works" |
+| `kind` / `extras` blank in the dashboard | those rows haven't been re-scraped since the fields were added — they fill in on the next `run`. Still blank after a run? `grep "field coverage" ~/immo/logs/lux_run.log \| tail -1` — a field at `0%` means athome renamed that payload key |
 
 ---
 

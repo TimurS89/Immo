@@ -11,8 +11,9 @@ in the terminal or a phone-friendly dashboard. Runs locally, **no paid APIs**.
 
 ## Repo facts
 - **Active branch:** `claude/nice-clarke-KfULG` (work has been committed/pushed here).
-- **Tests:** `pytest -q` → **158 passing** (legacy `test_analysis.py` skips when
-  `thefuzz` isn't installed). Run before and after any change.
+- **Tests:** `pytest -q` → **195 passing, 2 skipped** (legacy `test_analysis.py` /
+  `test_reports.py` skip when `thefuzz` / `jinja2` aren't installed — the lean LU
+  install omits both). Run before and after any change.
 - **Language/stack:** Python 3.11+, SQLite + Alembic, SQLAlchemy 2.0, Pydantic v2,
   httpx + BeautifulSoup, Rich, Streamlit (dashboard only).
 - **Everything current lives in** `src/lux_monitor/` + `src/scrapers/luxembourg/` +
@@ -34,7 +35,16 @@ in the terminal or a phone-friendly dashboard. Runs locally, **no paid APIs**.
   upper bound checks the evidenced count so big family homes aren't dropped);
   surface ≥ 80 m²; price caps buy ≤ €3M, rent ≤ €6,000/mo, furnished uncapped.
 - **Scoring (0–100, weights sum to 100):** bedrooms 18, drive 20, PT 15,
-  foreign% 13, description 12, energy 8, garage 7, garden 7.
+  foreign% 13, description 12, energy 8, garage 7, garden 7. The property-type /
+  amenity fields added 2026-09-13 are **recorded and filterable but not scored** —
+  adding one means re-balancing these weights.
+- **Property detail (added 2026-09-13):** `property_type` (house/apartment/other) +
+  `property_subtype` (detached_house, semi_detached, terraced_house, villa, studio,
+  duplex, penthouse…), `floor` (apartments), `land_m2` (houses), `bathrooms_count`,
+  terrace/balcony/livingroom m², `is_new_build`, and 11 comfort fields (AC, solar,
+  heat pump, pool, attic, basement, wine cellar, heating + type, kitchen type,
+  pets). All **tri-state** — `True` / `False` / `None` = *the advert doesn't say*.
+  Never render `None` as "no".
 - **Decision support:** `Listing.compare_price` is the single buy/rent price basis;
   `finance.py` estimates monthly mortgage (buy) for a like-for-like €/mo vs rent;
   `digest.buy_vs_rent_by_commune` (tested) powers the dashboard's break-even view;
@@ -53,6 +63,16 @@ in the terminal or a phone-friendly dashboard. Runs locally, **no paid APIs**.
 - Pagination is full (`paginator.totalPages`, capped by `max_pages_per_source`,
   set to 250 in `config/config.example.yaml`). A per-commune **funnel** log line
   (`athome funnel … total=… pages=… kept=…`) makes a thin harvest diagnosable.
+- **Property type / amenities come from the payload; plot size, AC and solar do
+  not** — athome's `search.list` has no field for those three, so they're read out
+  of the description text (`src/lux_monitor/features.py`, FR/DE/EN, accent-
+  insensitive; LU quotes plots in **ares**, 1 are = 100 m²).
+- The payload is **unversioned**, so `_first(entry, "hasBasementRoom",
+  "hasBasement", …)` accepts key-name variants, and `scrape()` ends with an
+  `athome field coverage …` log line (`name=count(pct%)` per enriched field). **A
+  field at 0% after a full run means the key was renamed**, not that no property
+  has one — that line is the only thing standing between a rename and 2,000 rows
+  of silent NULL.
 
 ## Run it
 ```bash
@@ -77,6 +97,17 @@ Daily automation: `scripts/run_lux.sh` via cron (see RUNBOOK §4). It logs to
 - **Backups:** `backup.py` + CLI `backup`/`restore`; `scripts/run_lux.sh` backs up
   to `data/backups/` (git-ignored, keeps 14) **before every run**. There's a
   `.claude/skills/protect-database` skill enforcing the no-wipe rule.
+- **Migrations are additive only.** New columns go in with plain
+  `op.add_column` (SQLite's native `ALTER TABLE … ADD COLUMN`), never
+  `batch_alter_table`, which rebuilds the table by copy-and-swap.
+  `tests/test_migration_additive.py` builds a populated DB at the pre-change
+  revision, upgrades to head, and asserts every row, value and **rowid** survives —
+  so a future destructive migration fails in CI, not on the operator's box.
+- **Existing rows enrich in place.** `save_listings` only writes non-`None` values
+  (`UPDATABLE_FIELDS` in `src/scrapers/luxembourg/base.py`), so a new column
+  backfills on the next run that re-sees the advert. Adding a column means adding
+  it to `UPDATABLE_FIELDS` too — `test_enrichment_fields_are_all_updatable` fails
+  if you forget, because otherwise it stays NULL forever on every existing row.
 - **Price band:** `PRICE_BAND` (config) — per-type (floor, cap); the floor drops
   portal data errors (e.g. a
   €1,111 "sale") so junk never reaches the shortlist.

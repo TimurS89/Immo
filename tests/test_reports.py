@@ -1,6 +1,14 @@
-"""Tests for report generation."""
+"""Tests for report generation.
+
+LEGACY (Germany/France stack). Renders the `src/reports` Jinja templates, which
+the lean Luxembourg install does not ship a dependency for. Skip the module
+cleanly when jinja2 is absent rather than breaking collection.
+"""
 
 import pytest
+
+pytest.importorskip("jinja2", reason="legacy DE/FR reports dep not installed (lean LU install)")
+
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from src.config import AppConfig

@@ -247,6 +247,10 @@ def top_listings(
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
+# Terminal columns are narrow; the dashboard shows the full subtype.
+_KIND_ABBREV = {"house": "house", "apartment": "apt", "other": "other"}
+
+
 def render_shortlist_table(rows: list[Listing]) -> None:
     from rich.console import Console
     from rich.table import Table
@@ -254,7 +258,8 @@ def render_shortlist_table(rows: list[Listing]) -> None:
     from src.lux_monitor.finance import monthly_mortgage
 
     table = Table(title="Luxembourg shortlist — top by score", show_lines=False)
-    cols = ("#", "Score", "Type", "Commune", "Bd", "m²", "€", "€/mo", "Drive", "PT", "Energy", "Gar", "Grd")
+    cols = ("#", "Score", "Type", "Kind", "Commune", "Bd", "m²", "€", "€/mo",
+            "Drive", "PT", "Energy", "Gar", "Grd")
     right = {"Score", "Bd", "m²", "€", "€/mo", "Drive", "PT"}
     for col in cols:
         table.add_column(col, justify="right" if col in right else "left")
@@ -266,6 +271,8 @@ def render_shortlist_table(rows: list[Listing]) -> None:
             str(i),
             f"{l.score_total:.1f}" if l.score_total is not None else "-",
             l.listing_type,
+            # "-" = not yet re-scraped since the field was added, not "unknown kind".
+            _KIND_ABBREV.get(l.property_type or "", "-"),
             l.commune,
             str(l.bedrooms),
             f"{l.surface_m2:.0f}",

@@ -42,6 +42,10 @@ PORTALS: tuple[str, ...] = ("athome", "immotop", "wortimmo", "nexvia")
 LISTING_TYPES: tuple[str, ...] = ("furnished", "rent", "buy")
 DESCRIPTION_LANGS: tuple[str, ...] = ("fr", "de", "en")
 ENERGY_CLASSES: tuple[str, ...] = tuple("ABCDEFGHI")  # Luxembourg passeport énergétique
+# Coarse property bucket. The fine-grained label lives in ``property_subtype``
+# and is deliberately NOT whitelisted — an unrecognised portal label slugifies
+# through (see features.classify_property) rather than being dropped.
+PROPERTY_TYPES: tuple[str, ...] = ("house", "apartment", "other")
 
 
 def _utcnow() -> datetime:
@@ -92,8 +96,14 @@ class Listing(Base):
 
     # --- Property core ---
     listing_type: Mapped[str] = mapped_column(String(8), nullable=False)  # rent | buy
+    # What KIND of property: coarse bucket for filtering + the fine-grained label.
+    property_type: Mapped[str | None] = mapped_column(String(32))  # house|apartment|other
+    property_subtype: Mapped[str | None] = mapped_column(
+        String(64)
+    )  # detached_house|semi_detached|terraced_house|villa|studio|duplex|penthouse|…
     bedrooms: Mapped[int] = mapped_column(Integer, nullable=False)  # chambres
     rooms_total: Mapped[int | None] = mapped_column(Integer)  # pièces, if reported
+    bathrooms_count: Mapped[int | None] = mapped_column(Integer)
     surface_m2: Mapped[float] = mapped_column(Float, nullable=False)
     floor: Mapped[int | None] = mapped_column(Integer)  # 0 = ground, -1 = below
     has_elevator: Mapped[bool | None] = mapped_column(Boolean)
@@ -101,9 +111,31 @@ class Listing(Base):
     parking_spaces: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     has_garden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     garden_m2: Mapped[float | None] = mapped_column(Float)
+    # Plot / lot size — the land a HOUSE sits on. Not exposed by athome's search
+    # payload, so it's extracted from the description (LU quotes "ares"; 1 a = 100 m²).
+    land_m2: Mapped[float | None] = mapped_column(Float)
     has_balcony_terrace: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    terrace_m2: Mapped[float | None] = mapped_column(Float)
+    balcony_m2: Mapped[float | None] = mapped_column(Float)
+    livingroom_m2: Mapped[float | None] = mapped_column(Float)
     construction_year: Mapped[int | None] = mapped_column(Integer)
     renovation_year: Mapped[int | None] = mapped_column(Integer)
+    is_new_build: Mapped[bool | None] = mapped_column(Boolean)
+
+    # --- Comfort / equipment ---
+    # Tri-state on purpose: True = stated present, False = explicitly absent,
+    # None = the listing doesn't say (UNKNOWN — never read None as "no").
+    has_air_conditioning: Mapped[bool | None] = mapped_column(Boolean)
+    has_solar_panels: Mapped[bool | None] = mapped_column(Boolean)
+    has_heat_pump: Mapped[bool | None] = mapped_column(Boolean)
+    has_pool: Mapped[bool | None] = mapped_column(Boolean)
+    has_attic: Mapped[bool | None] = mapped_column(Boolean)
+    has_basement: Mapped[bool | None] = mapped_column(Boolean)
+    has_wine_cellar: Mapped[bool | None] = mapped_column(Boolean)
+    has_heating: Mapped[bool | None] = mapped_column(Boolean)
+    heating_type: Mapped[str | None] = mapped_column(String(64))
+    kitchen_type: Mapped[str | None] = mapped_column(String(64))
+    accepts_pets: Mapped[bool | None] = mapped_column(Boolean)
 
     # --- Pricing (rent) ---
     rent_eur: Mapped[float | None] = mapped_column(Float)  # loyer, excl. charges
@@ -180,6 +212,7 @@ class Listing(Base):
         Index("ix_listings_commune", "commune"),
         Index("ix_listings_is_active", "is_active"),
         Index("ix_listings_portal", "portal"),
+        Index("ix_listings_property_type", "property_type"),
     )
 
     # --- Behavior ---

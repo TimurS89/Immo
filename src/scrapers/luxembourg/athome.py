@@ -19,8 +19,15 @@ from dataclasses import dataclass, field
 from pydantic import ValidationError
 
 from config.luxembourg import COMMUNE_HKEYS, HARD_FILTERS, TARGET_COMMUNES
+from src.lux_monitor.features import (
+    classify_property,
+    detect_air_conditioning,
+    detect_heat_pump,
+    detect_solar_panels,
+    extract_land_m2,
+)
 from src.lux_monitor.schemas import ListingCreate
-from src.scrapers.luxembourg.base import USER_AGENT, LuxBaseScraper
+from src.scrapers.luxembourg.base import ENRICHMENT_FIELDS, USER_AGENT, LuxBaseScraper
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +72,57 @@ def _to_int(value) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _first(entry: dict, *keys: str):
+    """First present, non-empty value among candidate key spellings.
+
+    athome's SSR payload is unversioned and its key names have moved before
+    (``hasBasementRoom`` vs ``hasBasement``). Listing the variants means a rename
+    degrades a field to *unknown* rather than to a wrong value — and the
+    field-coverage line logged at the end of :meth:`AtHomeScraper.scrape` is what
+    makes such a rename visible on the next run.
+    """
+    for key in keys:
+        if key in entry:
+            value = entry[key]
+            if value not in (None, "", "NC"):
+                return value
+    return None
+
+
+def _to_tri_bool(value) -> bool | None:
+    """Tri-state boolean: athome encodes "unknown" as ``-1``/``None``/``""``.
+
+    Crucially ``-1`` is NOT ``False`` — ``hasFurnished`` is ``-1`` on most
+    entries and reading that as "not furnished" is a fabricated answer.
+    """
+    if value in (None, "", "NC") or value in (-1, "-1"):
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "oui", "ja"}:
+        return True
+    if text in {"0", "false", "no", "non", "nein"}:
+        return False
+    return None
+
+
+def _clean_str(value) -> str | None:
+    """A short free-text label, or None.
+
+    Only genuine text counts: a bool/dict/list under one of these keys means the
+    payload shape changed, and ``"True"`` is a worse answer than "unknown".
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if text in ("", "NC"):
+        return None
+    return text[:64]
 
 
 @dataclass
@@ -171,6 +229,14 @@ class AtHomeScraper(LuxBaseScraper):
 
         meta = meta or {}
         price = _to_float(entry.get("price")) or _to_float(entry.get("price_min"))
+        # Every language the ad ships, joined once: a feature is often named in
+        # only one of them ("Klimaanlage" in DE, nothing in the FR text). Feeds
+        # both the furnished check below and the text-derived features further down.
+        descs_all = entry.get("descriptions") or {}
+        blob = " ".join(str(v) for v in descs_all.values() if v) + " " + str(
+            entry.get("description") or ""
+        )
+
         # Sale vs rental comes from the SEARCH (buy vs rent). Within rentals,
         # furnished is detected from the listing text (athome has no working
         # furnished URL facet, and its per-entry hasFurnished is always -1/None).
@@ -178,8 +244,6 @@ class AtHomeScraper(LuxBaseScraper):
         if is_sale:
             lt = "buy"
         else:
-            descs_all = entry.get("descriptions") or {}
-            blob = " ".join(str(v) for v in descs_all.values()) + " " + str(entry.get("description") or "")
             lt = "furnished" if (_FURNISHED_RE.search(blob) and not _NOT_FURNISHED_RE.search(blob)) else "rent"
         # Rentals must have a price (we score on it); sales are often
         # "price on request" — keep those (price stays None).
@@ -198,10 +262,11 @@ class AtHomeScraper(LuxBaseScraper):
             return None
         url = path if path.startswith("http") else f"{cls.BASE_URL}{path}"
 
-        descs = entry.get("descriptions") or {}
+        descs = descs_all
         description = descs.get("fr") or descs.get("en") or descs.get("de") or entry.get("description") or ""
         lang = "fr" if descs.get("fr") else ("en" if descs.get("en") else "de")
-        subtype = entry.get("propertySubType") or "Bien"
+        subtype_label = entry.get("propertySubType")
+        subtype = subtype_label or "Bien"
         if not description:
             description = f"{subtype} a {commune}."
             lang = "fr"
@@ -210,6 +275,23 @@ class AtHomeScraper(LuxBaseScraper):
         carparks = _to_int(entry.get("carparksCount")) or 0
         terraces = (_to_int(entry.get("terraceesCount")) or 0) + (_to_int(entry.get("balconiesCount")) or 0)
         street = address.get("street")
+
+        # What kind of property: coarse bucket (for filtering) + the fine label.
+        property_type, property_subtype = classify_property(subtype_label, group or None)
+
+        # Plot size: prefer a structured field if athome ships one for this entry,
+        # else read it out of the description (LU quotes plots in ares).
+        land_m2 = _to_float(
+            _first(entry, "landSurface", "groundSurface", "terrainSurface", "plotSurface")
+        ) or extract_land_m2(blob)
+
+        # Heat pump: athome's energy block when it says, the text otherwise.
+        energy = entry.get("energy") or {}
+        heat_pump = (
+            _to_tri_bool(energy.get("heat_pump"))
+            if "heat_pump" in energy
+            else detect_heat_pump(blob)
+        )
 
         fields = dict(
             portal=cls.SOURCE_NAME,
@@ -221,8 +303,11 @@ class AtHomeScraper(LuxBaseScraper):
             lat=_to_float(geo.get("lat")),
             lng=_to_float(geo.get("lon")),
             listing_type=lt,
+            property_type=property_type,
+            property_subtype=property_subtype,
             bedrooms=bedrooms,
             rooms_total=_to_int(entry.get("roomsCount")) or None,
+            bathrooms_count=_to_int(_first(entry, "bathroomsCount", "bathroomCount")),
             surface_m2=surface,
             floor=_to_int(entry.get("floorNumber")),
             has_elevator=bool(entry.get("hasElevator")),
@@ -230,8 +315,26 @@ class AtHomeScraper(LuxBaseScraper):
             parking_spaces=garages + carparks,
             has_garden=bool(entry.get("hasPrivateGarden")),
             garden_m2=_to_float(entry.get("privateGardenSurface")) or None,
+            land_m2=land_m2,
             has_balcony_terrace=terraces > 0,
+            terrace_m2=_to_float(_first(entry, "terraceesSurface", "terracesSurface")),
+            balcony_m2=_to_float(_first(entry, "balconiesSurface", "balconySurface")),
+            livingroom_m2=_to_float(_first(entry, "livingroomsSurface", "livingroomSurface")),
             construction_year=_to_int(entry.get("buildingYear")),
+            is_new_build=_to_tri_bool(_first(entry, "isNewBuild", "isNew")),
+            # Comfort / equipment. Payload where athome ships it, description text
+            # where it doesn't (AC and solar are in NO search-payload field).
+            has_air_conditioning=detect_air_conditioning(blob),
+            has_solar_panels=detect_solar_panels(blob),
+            has_heat_pump=heat_pump,
+            has_pool=_to_tri_bool(_first(entry, "hasPool", "hasSwimmingPool")),
+            has_attic=_to_tri_bool(_first(entry, "hasAttic", "hasAtticRoom")),
+            has_basement=_to_tri_bool(_first(entry, "hasBasementRoom", "hasBasement", "hasCellar")),
+            has_wine_cellar=_to_tri_bool(_first(entry, "hasWineCellar", "hasCaveAVin")),
+            has_heating=_to_tri_bool(_first(entry, "hasHeating", "hasCentralHeating")),
+            heating_type=_clean_str(_first(entry, "heatingType", "heating")),
+            kitchen_type=_clean_str(_first(entry, "kitchenType", "kitchen")),
+            accepts_pets=_to_tri_bool(_first(entry, "hasAcceptedAnimals", "acceptsAnimals", "petsAllowed")),
             description_raw=description,
             description_lang=lang,
             title=f"{subtype} - {address.get('city') or commune}",
@@ -324,4 +427,23 @@ class AtHomeScraper(LuxBaseScraper):
                         category, commune, reported_total, pages_seen, fetched_rows, kept,
                     )
         self.logger.info("athome: %d listings parsed across all searches", len(results))
+        self._log_field_coverage(results)
         return results
+
+    def _log_field_coverage(self, listings: list[ListingCreate]) -> None:
+        """Report how many listings actually carry each enriched field.
+
+        athome's payload is unversioned: a renamed key would leave its column
+        silently NULL for every row, which is invisible in the dashboard and
+        indistinguishable from "no ad mentions it". This line is what makes that
+        visible — a field at 0% after a full run means the key moved, not that
+        Luxembourg has no cellars.
+        """
+        if not listings:
+            return
+        total = len(listings)
+        parts = []
+        for name in ENRICHMENT_FIELDS:
+            known = sum(1 for x in listings if getattr(x, name, None) is not None)
+            parts.append(f"{name}={known}({100 * known // total}%)")
+        self.logger.info("athome field coverage over %d listings: %s", total, " ".join(parts))

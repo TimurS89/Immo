@@ -17,6 +17,7 @@ from .models import (
     ENERGY_CLASSES,
     LISTING_TYPES,
     PORTALS,
+    PROPERTY_TYPES,
     Listing,
     compare_price,
 )
@@ -39,8 +40,11 @@ class ListingBase(BaseModel):
 
     # Property core
     listing_type: str
+    property_type: str | None = None  # house | apartment | other
+    property_subtype: str | None = None  # detached_house | penthouse | …
     bedrooms: int = Field(ge=0)
     rooms_total: int | None = Field(default=None, ge=0)
+    bathrooms_count: int | None = Field(default=None, ge=0)
     surface_m2: float = Field(gt=0)
     floor: int | None = None
     has_elevator: bool | None = None
@@ -48,9 +52,28 @@ class ListingBase(BaseModel):
     parking_spaces: int = Field(default=0, ge=0)
     has_garden: bool = False
     garden_m2: float | None = Field(default=None, ge=0)
+    land_m2: float | None = Field(default=None, ge=0)  # plot size (houses)
     has_balcony_terrace: bool = False
+    terrace_m2: float | None = Field(default=None, ge=0)
+    balcony_m2: float | None = Field(default=None, ge=0)
+    livingroom_m2: float | None = Field(default=None, ge=0)
     construction_year: int | None = Field(default=None, ge=1700, le=2100)
     renovation_year: int | None = Field(default=None, ge=1700, le=2100)
+    is_new_build: bool | None = None
+
+    # Comfort / equipment — tri-state: True = present, False = explicitly absent,
+    # None = the listing doesn't say. Never read None as "no".
+    has_air_conditioning: bool | None = None
+    has_solar_panels: bool | None = None
+    has_heat_pump: bool | None = None
+    has_pool: bool | None = None
+    has_attic: bool | None = None
+    has_basement: bool | None = None
+    has_wine_cellar: bool | None = None
+    has_heating: bool | None = None
+    heating_type: str | None = None
+    kitchen_type: str | None = None
+    accepts_pets: bool | None = None
 
     # Pricing (rent)
     rent_eur: float | None = Field(default=None, ge=0)
@@ -99,6 +122,18 @@ class ListingBase(BaseModel):
                 f"description_lang must be one of {DESCRIPTION_LANGS}, got {v!r}"
             )
         return v
+
+    @field_validator("property_type")
+    @classmethod
+    def _check_property_type(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        normalized = v.strip().lower()
+        if normalized not in PROPERTY_TYPES:
+            raise ValueError(
+                f"property_type must be one of {PROPERTY_TYPES}, got {v!r}"
+            )
+        return normalized
 
     @field_validator("energy_class", "thermal_class")
     @classmethod
