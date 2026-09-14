@@ -24,34 +24,20 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
+from src.scrapers.luxembourg.base import ENRICHMENT_FIELDS
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # The head immediately before the property-type / amenity extension. Data written
 # at this revision is what an operator's live database already contains.
 BASELINE_REVISION = "b8e2f1a9c3d5"
 
-# Columns the extension added. Existing rows must read NULL for these.
-ADDED_COLUMNS = (
-    "property_type",
-    "property_subtype",
-    "bathrooms_count",
-    "land_m2",
-    "terrace_m2",
-    "balcony_m2",
-    "livingroom_m2",
-    "is_new_build",
-    "has_air_conditioning",
-    "has_solar_panels",
-    "has_heat_pump",
-    "has_pool",
-    "has_attic",
-    "has_basement",
-    "has_wine_cellar",
-    "has_heating",
-    "heating_type",
-    "kitchen_type",
-    "accepts_pets",
-)
+# Deliberately NOT a second copy of the migration's column list. ENRICHMENT_FIELDS
+# is what the scrapers promise to backfill, so pinning the assertions to it closes
+# the loop: a field added there without a migration fails here ("migration did not
+# add"), and the scraper tests separately require it to be in UPDATABLE_FIELDS and
+# to name a real column. Future columns are covered for free.
+ADDED_COLUMNS = ENRICHMENT_FIELDS
 
 
 def _alembic(db_path: Path, *args: str) -> None:

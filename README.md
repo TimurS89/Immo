@@ -67,7 +67,7 @@ Every run, the tool:
 
 ## Current status
 
-The pipeline is built, **tested (195 passing tests)**, and **running live against
+The pipeline is built, **tested (221 passing tests)**, and **running live against
 athome.lu** end‑to‑end. A full run currently harvests ~1,500 matching listings
 across the three types in the 7 target communes.
 
@@ -138,7 +138,7 @@ Beyond price, size and location:
 | **kind** — house / apartment / other | athome's property category |
 | **subtype** — detached house, semi‑detached, terraced, villa, studio, duplex, penthouse, loft… | athome's own label, normalised; an unknown label is kept as‑is rather than dropped |
 | **floor** (apartments) | athome payload |
-| **plot m²** (houses) | the advert text — Luxembourg quotes plots in **ares** (1 are = 100 m²), converted to m² |
+| **plot m²** (houses only) | the advert text — Luxembourg quotes plots in **ares** (1 are = 100 m²), converted to m². Never recorded for an apartment: "penthouse dans une résidence sur terrain de 10 ares" is the *building's* grounds |
 | bathrooms, living‑room / terrace / balcony m², new build | athome payload |
 | pool, attic, cellar, wine cellar, heating + heating type, kitchen type, pets, lift | athome payload |
 | **air conditioning**, **solar panels** | the advert text (FR/DE/EN) — athome has no field for either |
@@ -148,6 +148,15 @@ These are **tri‑state**: the value is *yes*, *explicitly no*, or **unknown**. 
 adverts list only a few features, so a blank means "the advert doesn't say" — never
 "the property doesn't have it". The dashboard's **Must have** filter therefore
 filters hard: it keeps only listings that explicitly state the feature.
+
+Two rules keep the text‑derived fields honest, because a wrong value here looks
+entirely plausible in the dashboard and nothing downstream would catch it:
+
+- **Offered is not fitted.** "Possibilité d'installer une climatisation" and
+  "climatisation en option" read as *unknown*, not *yes*.
+- **No answer beats a wrong one.** A number the parser can't tie to the plot
+  phrase itself is discarded rather than guessed — "sur terrain clôturé, maison
+  de 180 m²" records no plot, instead of an 180 m² one.
 
 Existing rows are **enriched in place** — a listing stored before these fields
 existed simply gains them the next time the run sees it. Nothing is reset or

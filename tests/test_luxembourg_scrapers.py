@@ -67,6 +67,30 @@ def test_athome_maps_property_type_floor_and_land():
     assert flat.land_m2 is None     # and lot size does not
 
 
+def test_athome_apartment_never_takes_the_buildings_plot_from_text():
+    """"Penthouse ... sur terrain de 10 ares" is the RESIDENCE's grounds.
+
+    Recording 1,000 m² as the flat's own plot is simply wrong, so the text path
+    is skipped for apartments.
+    """
+    entry = {
+        "id": 9001, "propertySubType": "Penthouse",
+        "immotype": {"portal_group": "flat"},
+        "bedroomsCount": 3, "roomsCount": 4, "propertySurface": 130, "price": 4000,
+        "floorNumber": 5,
+        "descriptions": {"fr": "Penthouse dans une résidence sur terrain de 10 ares."},
+    }
+    meta = {
+        "permalink": {"fr": "/x.html"},
+        "address": {"district": "Strassen"},
+        "isPriceOnDemand": False,
+    }
+    listing = AtHomeScraper._build_listing(entry, meta, "rent")
+    assert listing.property_type == "apartment"
+    assert listing.land_m2 is None
+    assert listing.floor == 5
+
+
 def test_athome_maps_amenities_from_payload_and_text():
     listings = AtHomeScraper.parse_serp(_load("athome_serp_rent.html"), "rent")
     house = _by_id(listings, "1001")

@@ -61,14 +61,25 @@ NEW_COLUMNS: tuple[tuple[str, sa.types.TypeEngine], ...] = (
 INDEX_NAME = "ix_listings_property_type"
 
 
+def _offline() -> bool:
+    """True under ``alembic upgrade --sql``: there is no connection to inspect.
+
+    Reporting nothing as present then emits every statement, which is what a
+    generated SQL script should contain.
+    """
+    return bool(op.get_context().as_sql)
+
+
 def _existing_columns() -> set[str]:
-    inspector = sa.inspect(op.get_bind())
-    return {col["name"] for col in inspector.get_columns("listings")}
+    if _offline():
+        return set()
+    return {col["name"] for col in sa.inspect(op.get_bind()).get_columns("listings")}
 
 
 def _existing_indexes() -> set[str]:
-    inspector = sa.inspect(op.get_bind())
-    return {ix["name"] for ix in inspector.get_indexes("listings")}
+    if _offline():
+        return set()
+    return {ix["name"] for ix in sa.inspect(op.get_bind()).get_indexes("listings")}
 
 
 def upgrade() -> None:
